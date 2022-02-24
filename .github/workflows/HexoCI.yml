@@ -1,0 +1,34 @@
+name: CI
+on:
+    push:
+        branches:
+            - source
+jobs:
+    build:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout source
+              uses: actions/checkout@v1
+              with:
+                  ref: source
+            - name: Set keys
+              uses: webfactory/ssh-agent@v0.5.4
+              with:
+                  ssh-private-key: ${{ secrets.HEXO_DEPLOY_PRI }}
+            - name: Use Node.js ${{ matrix.node_version }}
+              uses: actions/checkout@v1
+              with:
+                  version: ${{ matrix.node_version}}
+            - name: Setup Hexo
+              env:
+                  ACTION_DEPLOY_KEY: ${{ secrets.HEXO_DEPLOY_PRI }}
+              run: |
+                  git config --global user.email "kujourinka@gmail.com"
+                  git config --global user.name "KujouRinka"
+                  npm install hexo-cli -g
+                  npm install
+            - name: Hexo deploy
+              run: |
+                  npm install hexo-deployer-git --save
+                  hexo clean
+                  hexo d

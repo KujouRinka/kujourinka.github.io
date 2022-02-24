@@ -102,6 +102,6 @@ theme: landscape
 # Deployment
 ## Docs: https://hexo.io/docs/one-command-deployment
 deploy:
-  type: ''
-  repo: 
-  branch: 
+  type: git
+  repo: git@github.com:KujouRinka/kujourinka.github.io.git
+  branch: master
