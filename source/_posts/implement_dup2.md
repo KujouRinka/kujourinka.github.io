@@ -29,7 +29,7 @@ int myDup2(int fd, int fd2) {
         errno = EBADF;
         return -1;
     }
-    // ...
+// ...
 ```
 
 其中 `getdtablesize()` 用于获取文件描述符表的的大小，限制了系统最大的文件描述符。
@@ -41,12 +41,12 @@ int myDup2(int fd, int fd2) {
 接下来，由 `dup2` 的定义，若 `fd` 等于 `fd2` ，则 `dup2` 返回 `fd2` ，而不关闭它；以及如果 `fd2` 已经打开，则先将其关闭：
 
 ``` c
-    // ...
+// ...
     if (fd == fd2)
         return fd;
     if (isOpen(fd2))
         close(fd2);
-    // ...
+// ...
 ```
 
 接下来为 `myDup2` 的核心逻辑。根据「 `dup` 返回的新文件描述符一定是当前可用文件描述符的最小数值」，基本思路为不断使用 `dup(fd)` 直至其返回值与 `fd2` 相等，随后将之前使用 `dup` 打开的文件描述符关闭即可。
@@ -54,7 +54,7 @@ int myDup2(int fd, int fd2) {
 考虑到需要记录由 `dup(fd)` 创建的文件描述符用于删除，加之 `C` 需要手动实现类似动态数组之类的数据结构，我们~~偷懒~~使用递归替代手动存储的工作。我们将这个操作使用 `int recursiveDup(int fd, int fd2)` 完成，我们定义返回值为成功复制后的 `fd2` ，若失败，则返回 `-1` ：
 
 ``` c
-    // ...
+// ...
     if ((fd2 = recursiveDup(fd, fd2)) == -1)
         errno = EBADF;
     return fd2;
@@ -77,7 +77,7 @@ int recursiveDup(int fd, int fd2) {
     if (nf == fd2)
         return nf;
     int rf = recursiveDup(fd, fd2);
-    // ...
+// ...
 ```
 
 使用 `dup` 复制文件描述符，若失败，返回 `-1` ，这里并不处理 `errno` 因为我们将所有的 `errno` 处理放在 `myDup` 中。若得到期望的文件描述符的值，返回之。若否，继续递归调用 `recursiveDup` 直至其产生。
@@ -85,7 +85,7 @@ int recursiveDup(int fd, int fd2) {
 之后：
 
 ``` c
-    // ...
+// ...
     close(nf);
     return rf;
 }
