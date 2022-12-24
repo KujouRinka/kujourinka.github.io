@@ -11,7 +11,7 @@ date: 2022-12-23 22:00
 
 [rpc.go 的修改](https://github.com/KujouRinka/6.824-2022/commit/2f3c87aff43fc548f341853307b424d8ab37438e)
 
-[coordinator.go 的修改](https://github.com/KujouRinka/6.824-2022/commit/2f3c87aff43fc548f341853307b424d8ab37438e)
+[coordinator.go 的修改](https://github.com/KujouRinka/6.824-2022/commit/9b3fc49785e57b2846145c9082a162769456a2c7)
 
 [worker.go 的修改](https://github.com/KujouRinka/6.824-2022/commit/e6833214404b7fb567d85ba9edc62444781ad9e7)
 
