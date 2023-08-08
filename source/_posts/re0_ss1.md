@@ -1,11 +1,11 @@
 ---
 title: 从零写一个 shadowsocks（1）
-date: 2023-03-21 23:00
+date: 2023-08-08 23:00
 ---
 
 ### 0. 引言
 类似 shadowsocks，v2ray，trojan 之类的代理软件原理，用一张很老的图就能概括：
-![ss原理](img/ss.png)
+![ss原理](https://raw.githubusercontent.com/KujouRinka/flowchart/master/20230808/ss.png)
 
 是不是很简单呀？那么今天我们就来简单实现一下。不过鉴于这种基石软件用的人数之多，网上想必也有很多类似的文章，我再写这种陈词滥调一是无聊，二是无用。所以我打算加一点新鲜东西，讲述一个代理软件是如何一步步将简单的转发流量的功能拓展到：
 
