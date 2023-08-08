@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  
+  
+  <title>6.824 Lab1 MapReduce 快速实现 | Hexo</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+  <meta name="description" content="这个是 MIT 6.824 分布式系统（Distributed Systems）2022 年的 lab1，lab 链接。字有点多，需要花些时间耐心读一下。 个人认为这个 Lab 在对 Golang 有一定了解的情况下不是很难实现，一定要把题意理解清楚，画一个大致框架再动手。我用了两天时间，第一天主要是读题（再次吐槽一下字有点多）和画大致框架，第二天花了一下午几个小时写了代码。Debug 没有难度，">
+<meta property="og:type" content="article">
+<meta property="og:title" content="6.824 Lab1 MapReduce 快速实现">
+<meta property="og:url" content="https://kujourinka.github.io/2022/12/23/6824_lab1_MapReduce/index.html">
+<meta property="og:site_name" content="Hexo">
+<meta property="og:description" content="这个是 MIT 6.824 分布式系统（Distributed Systems）2022 年的 lab1，lab 链接。字有点多，需要花些时间耐心读一下。 个人认为这个 Lab 在对 Golang 有一定了解的情况下不是很难实现，一定要把题意理解清楚，画一个大致框架再动手。我用了两天时间，第一天主要是读题（再次吐槽一下字有点多）和画大致框架，第二天花了一下午几个小时写了代码。Debug 没有难度，">
+<meta property="og:locale">
+<meta property="og:image" content="https://raw.githubusercontent.com/KujouRinka/flowchart/master/cw_rpc.svg">
+<meta property="article:published_time" content="2022-12-23T14:00:00.000Z">
+<meta property="article:modified_time" content="2023-08-08T15:38:20.094Z">
+<meta property="article:author" content="Kujou Rinka">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://raw.githubusercontent.com/KujouRinka/flowchart/master/cw_rpc.svg">
+  
+    <link rel="alternate" href="/atom.xml" title="Hexo" type="application/atom+xml">
+  
+  
+    <link rel="shortcut icon" href="/favicon.png">
+  
+  
+    
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/typeface-source-code-pro@0.0.71/index.min.css">
+
+  
+  
+<link rel="stylesheet" href="/css/style.css">
+
+  
+    
+<link rel="stylesheet" href="/fancybox/jquery.fancybox.min.css">
+
+  
+<meta name="generator" content="Hexo 6.0.0"></head>
+
+<body>
+  <div id="container">
+    <div id="wrap">
+      <header id="header">
+  <div id="banner"></div>
+  <div id="header-outer" class="outer">
+    <div id="header-title" class="inner">
+      <h1 id="logo-wrap">
+        <a href="/" id="logo">Hexo</a>
+      </h1>
+      
+        <h2 id="subtitle-wrap">
+          <a href="/" id="subtitle">Rinka 的随笔</a>
+        </h2>
+      
+    </div>
+    <div id="header-inner" class="inner">
+      <nav id="main-nav">
+        <a id="main-nav-toggle" class="nav-icon"></a>
+        
+          <a class="main-nav-link" href="/">Home</a>
+        
+          <a class="main-nav-link" href="/archives">Archives</a>
+        
+      </nav>
+      <nav id="sub-nav">
+        
+          <a id="nav-rss-link" class="nav-icon" href="/atom.xml" title="RSS Feed"></a>
+        
+        <a id="nav-search-btn" class="nav-icon" title="Suche"></a>
+      </nav>
+      <div id="search-form-wrap">
+        <form action="//google.com/search" method="get" accept-charset="UTF-8" class="search-form"><input type="search" name="q" class="search-form-input" placeholder="Suche"><button type="submit" class="search-form-submit">&#xF002;</button><input type="hidden" name="sitesearch" value="https://kujourinka.github.io"></form>
+      </div>
+    </div>
+  </div>
+</header>
+
+      <div class="outer">
+        <section id="main"><article id="post-6824_lab1_MapReduce" class="h-entry article article-type-post" itemprop="blogPost" itemscope itemtype="https://schema.org/BlogPosting">
+  <div class="article-meta">
+    <a href="/2022/12/23/6824_lab1_MapReduce/" class="article-date">
+  <time class="dt-published" datetime="2022-12-23T14:00:00.000Z" itemprop="datePublished">2022-12-23</time>
+</a>
+    
+  </div>
+  <div class="article-inner">
+    
+    
+      <header class="article-header">
+        
+  
+    <h1 class="p-name article-title" itemprop="headline name">
+      6.824 Lab1 MapReduce 快速实现
+    </h1>
+  
+
+      </header>
+    
+    <div class="e-content article-entry" itemprop="articleBody">
+      
+        <p>这个是 MIT 6.824 分布式系统（Distributed Systems）2022 年的 lab1，<a target="_blank" rel="noopener" href="https://pdos.csail.mit.edu/6.824/labs/lab-mr.html">lab 链接</a>。字有点多，需要花些时间耐心读一下。</p>
+<p>个人认为这个 Lab 在对 Golang 有一定了解的情况下不是很难实现，一定要把题意理解清楚，画一个大致框架再动手。我用了两天时间，第一天主要是读题（再次吐槽一下字有点多）和画大致框架，第二天花了一下午几个小时写了代码。Debug 没有难度，可能是我运气比较好，一把过2333</p>
+<p>下面开始讲个人的实现，代码量不大，算上注释大致 200 行。</p>
+<p><a target="_blank" rel="noopener" href="https://github.com/KujouRinka/6.824-2022/commit/2f3c87aff43fc548f341853307b424d8ab37438e">rpc.go 的修改</a></p>
+<p><a target="_blank" rel="noopener" href="https://github.com/KujouRinka/6.824-2022/commit/9b3fc49785e57b2846145c9082a162769456a2c7">coordinator.go 的修改</a></p>
+<p><a target="_blank" rel="noopener" href="https://github.com/KujouRinka/6.824-2022/commit/e6833214404b7fb567d85ba9edc62444781ad9e7">worker.go 的修改</a></p>
+<h4 id="复述"><a href="#复述" class="headerlink" title="复述"></a>复述</h4><p>实现 Google 曾经使用的 <a target="_blank" rel="noopener" href="https://pdos.csail.mit.edu/6.824/papers/mapreduce.pdf">MapReduce</a> 的一个简单版本。具体的，修改<code>mr</code> 目录下的 <code>coordinator.go</code>，<code>rpc.go</code>，<code>worker.go</code> 三个文件实现 MapReduce</p>
+<h4 id="思路"><a href="#思路" class="headerlink" title="思路"></a>思路</h4><p>主要是修改 <code>coordinator.go</code> 和 <code>worker.go</code>，分别对于 pdf 文档中的 Master 和 Worker。前者负责调度任务，比如如何分配文件，如何规定超时任务的重新安排等等；后者负责实际执行 <code>map</code> 和 <code>reduce</code> 函数。</p>
+<p>由于实际编写的是 coordinator 和 woker 的分布式版本，我们需要模拟这两个函数实际是在不同的机器上运行的，所以 coordinator 和 worker 两者的通信方式需要使用 RPC。于是，我们需要简单定义一下两者的通信方式：</p>
+<ul>
+<li>我们需要知道，需要先启动单个 coordinator，随后再启动多个 worker，这个测试脚本为我们做了，我们只需要了解。</li>
+<li>worker 通过 <strong>RPC</strong> 向 coordinator 发送请求，表示“我现在空闲，请给我一个任务”。</li>
+<li>由于 coordinator 已经注册了 RPC 服务（我们无需关注），其可以收到来自 worker 的 RPC 请求，我们从 coordinator 的任务队列中取出一个任务发送给 worker，并同时启动一个用于接收 worker 完成任务的方法和一个超时计时器。前者用于当 worker 完成任务时通知 coordinator；后者用于当 worker 没有按时完成任务时（paper 中解释的，可能 worker 崩溃了，或者网络阻塞等等），用于将任务重新安排给一个 worker。</li>
+<li>当 worker 通过 RPC 获取到任务时，进行实际的工作。如果任务出错，直接终止等待下个任务即可，因为 coordinator 的计时器会帮我们重新安排这个任务；如果任务成功，再通过 RPC 告知 coordinator 任务已完成。若对 coordinator 的 RPC 调用失败，我们认为 coordinator 已经传输了所有的任务已退出，worker 可以终止。</li>
+</ul>
+<p>简单的流程图如下：</p>
+<p><img src="https://raw.githubusercontent.com/KujouRinka/flowchart/master/cw_rpc.svg" alt="cw_rpc"></p>
+<p>程序的流程是：</p>
+<ul>
+<li>我们通过对每个原始文件的内容作为 map 函数的参数输入，得到一组 <code>KeyValue</code>，对于不同的 <code>Key</code> 通过 <code>ihash(key) % nReduce</code> 计算出不同的 <code>key</code> 的 <code>reduceId</code> 将这个结果保存在 <code>mr-&#123;taskId&#125;-&#123;reduceId&#125;</code> 这个中间文件（intermediate）中。</li>
+<li>当所有原始文件全部生成完对应的 <code>mr-&#123;taskId&#125;-&#123;reduceId&#125;</code> 文件后，coordinator 开始分配 reduce 函数的任务，于是每个 worker 只需要查找全部对应的 <code>reduceId</code> 的文件（具体的：<code>mr-*-&#123;reduceId&#125;</code>）进行合并处理和  <code>reduce</code> 调用即可。对于每个 <code>reduceId</code> ，生成对应的 <code>mr-out-&#123;reduceId&#125;</code> 文件。</li>
+</ul>
+<p>简单来说，就是：<code>pg*.txt</code> –&gt; <code>mr-1-0</code>, <code>mr-1-1</code>, …, <code>mr-2-0</code>, <code>mr-2-1</code>, … –&gt; <code>mr-out-0</code>, <code>mr-out-1</code>,… 这个流程。</p>
+<h4 id="代码修改"><a href="#代码修改" class="headerlink" title="代码修改"></a>代码修改</h4><p>由于没有删除的代码，下面只列出添加的代码：</p>
+<h5 id="rpc-go"><a href="#rpc-go" class="headerlink" title="rpc.go"></a>rpc.go</h5><p>首先添加一些 rpc 的定义：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">type</span> Task <span class="keyword">struct</span> &#123;</span><br><span class="line">	Type     <span class="type">int</span>		<span class="comment">// 任务的类型，包括 Map 和 Reduce</span></span><br><span class="line">	Filename <span class="type">string</span>		<span class="comment">// 当 Type 为 Map 时字段有效，表示需要作用 Map 函数的文件的文件名</span></span><br><span class="line">	TaskId   <span class="type">int</span>		<span class="comment">// 用于标记这个 Task 的 Id，在对 Coordinator 回馈结果的时候作为参数返回</span></span><br><span class="line">	ReduceId <span class="type">int</span>		<span class="comment">// Coordinator 要求这个 Worker 统计的 Reduce 的 Id</span></span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="keyword">const</span> (</span><br><span class="line">	Map = <span class="literal">iota</span></span><br><span class="line">	Reduce</span><br><span class="line">)</span><br><span class="line"></span><br><span class="line"><span class="comment">// 创建一个对应 Map 的 Task 结构</span></span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">NewMapTask</span><span class="params">(filename <span class="type">string</span>, taskId <span class="type">int</span>)</span></span> Task &#123;</span><br><span class="line">	<span class="keyword">return</span> Task&#123;</span><br><span class="line">		Type:     Map,</span><br><span class="line">		Filename: filename,</span><br><span class="line">		TaskId:   taskId,</span><br><span class="line">	&#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="comment">// 创建一个对应 Reduce 的 Task 的结构</span></span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">NewReduceTask</span><span class="params">(reduceId, taskId <span class="type">int</span>)</span></span> Task &#123;</span><br><span class="line">	<span class="keyword">return</span> Task&#123;</span><br><span class="line">		Type:     Reduce,</span><br><span class="line">		TaskId:   taskId,</span><br><span class="line">		ReduceId: reduceId,</span><br><span class="line">	&#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="comment">// NeedWork RPC: 用于请求 Coordinator 分配新的任务</span></span><br><span class="line"><span class="comment">// NeedWork 的参数</span></span><br><span class="line"><span class="keyword">type</span> NeedWorkArgs <span class="keyword">struct</span> &#123;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="comment">// NeedWork 的返回值</span></span><br><span class="line"><span class="keyword">type</span> NeedWorkReply <span class="keyword">struct</span> &#123;</span><br><span class="line">	T         Task</span><br><span class="line">	ReduceCnt <span class="type">int</span></span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="comment">// FinishWork RPC: 用于告知 Coordinator 任务已完成</span></span><br><span class="line"><span class="comment">// FinishWork 的参数</span></span><br><span class="line"><span class="keyword">type</span> FinishWorkArgs <span class="keyword">struct</span> &#123;</span><br><span class="line">	TaskId <span class="type">int</span></span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="comment">// FinishWork 的返回值</span></span><br><span class="line"><span class="keyword">type</span> FinishWorkReply <span class="keyword">struct</span> &#123;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<h5 id="worker-go"><a href="#worker-go" class="headerlink" title="worker.go"></a>worker.go</h5><figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 添加的 import</span></span><br><span class="line"><span class="keyword">import</span> (</span><br><span class="line">	<span class="string">&quot;encoding/json&quot;</span></span><br><span class="line">	<span class="string">&quot;fmt&quot;</span></span><br><span class="line">	<span class="string">&quot;io&quot;</span></span><br><span class="line">	<span class="string">&quot;os&quot;</span></span><br><span class="line">	<span class="string">&quot;sort&quot;</span></span><br><span class="line">	<span class="string">&quot;strings&quot;</span></span><br><span class="line">)</span><br><span class="line"></span><br><span class="line"><span class="comment">// 引入的排序 interface，从 mrsequential.go copy 来</span></span><br><span class="line"><span class="comment">// for sorting by key.</span></span><br><span class="line"><span class="keyword">type</span> ByKey []KeyValue</span><br><span class="line"></span><br><span class="line"><span class="comment">// for sorting by key.</span></span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="params">(a ByKey)</span></span> Len() <span class="type">int</span>           &#123; <span class="keyword">return</span> <span class="built_in">len</span>(a) &#125;</span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="params">(a ByKey)</span></span> Swap(i, j <span class="type">int</span>)      &#123; a[i], a[j] = a[j], a[i] &#125;</span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="params">(a ByKey)</span></span> Less(i, j <span class="type">int</span>) <span class="type">bool</span> &#123; <span class="keyword">return</span> a[i].Key &lt; a[j].Key &#125;</span><br></pre></td></tr></table></figure>
+
+<p>下面是 <code>Worker</code> 函数的定义，全是感情，没有任何 Go 的技巧 :)</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br><span class="line">78</span><br><span class="line">79</span><br><span class="line">80</span><br><span class="line">81</span><br><span class="line">82</span><br><span class="line">83</span><br><span class="line">84</span><br><span class="line">85</span><br><span class="line">86</span><br><span class="line">87</span><br><span class="line">88</span><br><span class="line">89</span><br><span class="line">90</span><br><span class="line">91</span><br><span class="line">92</span><br><span class="line">93</span><br><span class="line">94</span><br><span class="line">95</span><br><span class="line">96</span><br><span class="line">97</span><br><span class="line">98</span><br><span class="line">99</span><br><span class="line">100</span><br><span class="line">101</span><br><span class="line">102</span><br><span class="line">103</span><br><span class="line">104</span><br><span class="line">105</span><br><span class="line">106</span><br><span class="line">107</span><br><span class="line">108</span><br><span class="line">109</span><br><span class="line">110</span><br><span class="line">111</span><br><span class="line">112</span><br><span class="line">113</span><br><span class="line">114</span><br><span class="line">115</span><br><span class="line">116</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">Worker</span><span class="params">(mapf <span class="keyword">func</span>(<span class="type">string</span>, <span class="type">string</span>)</span></span> []KeyValue,</span><br><span class="line">	reducef <span class="function"><span class="keyword">func</span><span class="params">(<span class="type">string</span>, []<span class="type">string</span>)</span></span> <span class="type">string</span>) &#123;</span><br><span class="line">	<span class="keyword">for</span> &#123;</span><br><span class="line">		needWordReply := NeedWorkReply&#123;&#125;</span><br><span class="line">		ok := call(<span class="string">&quot;Coordinator.NeedWork&quot;</span>, &amp;NeedWorkArgs&#123;&#125;, &amp;needWordReply)</span><br><span class="line">		<span class="keyword">if</span> !ok &#123;</span><br><span class="line">			<span class="comment">// 当 RPC 调用失败，我们认为 Coordinator 任务完成退出，</span></span><br><span class="line">			<span class="comment">// 所以 Worker 理应退出终止</span></span><br><span class="line">			<span class="comment">// Coordinator finish its work</span></span><br><span class="line">			<span class="keyword">break</span></span><br><span class="line">		&#125;</span><br><span class="line">		<span class="keyword">if</span> needWordReply.T.Type == Map &#123;</span><br><span class="line">			<span class="comment">// 处理 Map 任务的逻辑</span></span><br><span class="line">			filename := needWordReply.T.Filename</span><br><span class="line">			file, err := os.Open(filename)</span><br><span class="line">			<span class="keyword">if</span> err != <span class="literal">nil</span> &#123;</span><br><span class="line">				log.Fatalf(<span class="string">&quot;cannot open %v&quot;</span>, filename)</span><br><span class="line">			&#125;</span><br><span class="line">			content, err := io.ReadAll(file)</span><br><span class="line">			<span class="keyword">if</span> err != <span class="literal">nil</span> &#123;</span><br><span class="line">				log.Fatalf(<span class="string">&quot;cannot read %v&quot;</span>, filename)</span><br><span class="line">			&#125;</span><br><span class="line">			file.Close()</span><br><span class="line">			<span class="comment">// 得到单个文件的 Key-Value</span></span><br><span class="line">			kva := mapf(filename, <span class="type">string</span>(content))</span><br><span class="line"></span><br><span class="line">			<span class="comment">// 生成 intermediate 文件的逻辑</span></span><br><span class="line">			<span class="comment">// 首先计算每个 Key 的 reduceId，保存在 intermediate 这个二维切片中</span></span><br><span class="line">			intermediate := <span class="built_in">make</span>([][]KeyValue, needWordReply.ReduceCnt)</span><br><span class="line">			<span class="keyword">for</span> _, kv := <span class="keyword">range</span> kva &#123;</span><br><span class="line">				reduceTask := ihash(kv.Key) % needWordReply.ReduceCnt</span><br><span class="line">				intermediate[reduceTask] = <span class="built_in">append</span>(intermediate[reduceTask], kv)</span><br><span class="line">			&#125;</span><br><span class="line">			<span class="comment">// intermediate[i] 对应 mr-&#123;taskId&#125;-&#123;i&#125; 这个中间文件</span></span><br><span class="line">			<span class="comment">// 以 paper 中提示的使用 json 的方式写入</span></span><br><span class="line">			<span class="keyword">for</span> i := <span class="number">0</span>; i &lt; needWordReply.ReduceCnt; i++ &#123;</span><br><span class="line">				ofilename := fmt.Sprintf(<span class="string">&quot;mr-%d-%d&quot;</span>, needWordReply.T.TaskId, i)</span><br><span class="line">				<span class="comment">// ofile, _ := os.Create(ofilename)</span></span><br><span class="line">				tf, _ := os.CreateTemp(<span class="string">&quot;./&quot;</span>, ofilename)</span><br><span class="line">				enc := json.NewEncoder(tf)</span><br><span class="line">				<span class="keyword">for</span> _, kv := <span class="keyword">range</span> intermediate[i] &#123;</span><br><span class="line">					enc.Encode(&amp;kv)</span><br><span class="line">				&#125;</span><br><span class="line">				tf.Close()</span><br><span class="line">				os.Rename(tf.Name(), ofilename)</span><br><span class="line">			&#125;</span><br><span class="line">		&#125; <span class="keyword">else</span> <span class="keyword">if</span> needWordReply.T.Type == Reduce &#123;</span><br><span class="line">			<span class="comment">// 处理 Reduce 任务的逻辑</span></span><br><span class="line">			<span class="comment">// 找出目录下所有对应该 Reduce 的文件名</span></span><br><span class="line">			<span class="comment">// find all files corresponding to this reduce task</span></span><br><span class="line">			<span class="keyword">var</span> filenames []<span class="type">string</span></span><br><span class="line">			files, err := os.ReadDir(<span class="string">&quot;.&quot;</span>)</span><br><span class="line">			<span class="keyword">if</span> err != <span class="literal">nil</span> &#123;</span><br><span class="line">				log.Fatalf(<span class="string">&quot;cannot read current directory&quot;</span>)</span><br><span class="line">			&#125;</span><br><span class="line">			<span class="keyword">for</span> _, file := <span class="keyword">range</span> files &#123;</span><br><span class="line">				<span class="keyword">if</span> file.IsDir() &#123;</span><br><span class="line">					<span class="keyword">continue</span></span><br><span class="line">				&#125;</span><br><span class="line">				filename := file.Name()</span><br><span class="line">				prefix := <span class="string">&quot;mr-&quot;</span></span><br><span class="line">				suffix := fmt.Sprintf(<span class="string">&quot;-%d&quot;</span>, needWordReply.T.ReduceId)</span><br><span class="line">				<span class="keyword">if</span> strings.HasPrefix(filename, prefix) &amp;&amp; strings.HasSuffix(filename, suffix) &#123;</span><br><span class="line">					filenames = <span class="built_in">append</span>(filenames, filename)</span><br><span class="line">				&#125;</span><br><span class="line">			&#125;</span><br><span class="line"></span><br><span class="line">			<span class="comment">// 对所有已找到的文件进行读取</span></span><br><span class="line">			<span class="comment">// do reduce job</span></span><br><span class="line">			<span class="keyword">var</span> kva []KeyValue</span><br><span class="line">			<span class="keyword">for</span> _, filename := <span class="keyword">range</span> filenames &#123;</span><br><span class="line">				file, err := os.Open(filename)</span><br><span class="line">				<span class="keyword">if</span> err != <span class="literal">nil</span> &#123;</span><br><span class="line">					log.Fatalf(<span class="string">&quot;cannot open %v&quot;</span>, filename)</span><br><span class="line">				&#125;</span><br><span class="line">				dec := json.NewDecoder(file)</span><br><span class="line">				<span class="keyword">for</span> &#123;</span><br><span class="line">					<span class="keyword">var</span> kv KeyValue</span><br><span class="line">					<span class="keyword">if</span> err := dec.Decode(&amp;kv); err != <span class="literal">nil</span> &#123;</span><br><span class="line">						<span class="keyword">break</span></span><br><span class="line">					&#125;</span><br><span class="line">					kva = <span class="built_in">append</span>(kva, kv)</span><br><span class="line">				&#125;</span><br><span class="line">			&#125;</span><br><span class="line"></span><br><span class="line">			<span class="comment">// 对该任务进行 Reduce 调用，逻辑和 mrsequential.go 完全一致，代码直接 copy</span></span><br><span class="line">			<span class="comment">// copy from mrsequential.go</span></span><br><span class="line">			sort.Sort(ByKey(kva))</span><br><span class="line">			oname := fmt.Sprintf(<span class="string">&quot;mr-out-%d&quot;</span>, needWordReply.T.ReduceId)</span><br><span class="line">			ofile, _ := os.Create(oname)</span><br><span class="line">			i := <span class="number">0</span></span><br><span class="line">			<span class="keyword">for</span> i &lt; <span class="built_in">len</span>(kva) &#123;</span><br><span class="line">				j := i + <span class="number">1</span></span><br><span class="line">				<span class="keyword">for</span> j &lt; <span class="built_in">len</span>(kva) &amp;&amp; kva[j].Key == kva[i].Key &#123;</span><br><span class="line">					j++</span><br><span class="line">				&#125;</span><br><span class="line">				values := []<span class="type">string</span>&#123;&#125;</span><br><span class="line">				<span class="keyword">for</span> k := i; k &lt; j; k++ &#123;</span><br><span class="line">					values = <span class="built_in">append</span>(values, kva[k].Value)</span><br><span class="line">				&#125;</span><br><span class="line">				output := reducef(kva[i].Key, values)</span><br><span class="line">				fmt.Fprintf(ofile, <span class="string">&quot;%v %v\n&quot;</span>, kva[i].Key, output)</span><br><span class="line">				i = j</span><br><span class="line">			&#125;</span><br><span class="line">			ofile.Close()</span><br><span class="line">		&#125; <span class="keyword">else</span> &#123;</span><br><span class="line">			<span class="comment">// unknown task type</span></span><br><span class="line">			log.Fatalf(<span class="string">&quot;unknown task type: %v&quot;</span>, needWordReply.T.Type)</span><br><span class="line">		&#125;</span><br><span class="line"></span><br><span class="line">		<span class="comment">// 运行到此代表该任务成功完成，通过 RPC 告知 Coordinator 任务完成</span></span><br><span class="line">		<span class="comment">// make FinishWork RPC call</span></span><br><span class="line">		call(<span class="string">&quot;Coordinator.FinishWork&quot;</span>, &amp;FinishWorkArgs&#123;TaskId: needWordReply.T.TaskId&#125;, &amp;FinishWorkReply&#123;&#125;)</span><br><span class="line">	&#125;</span><br><span class="line">	<span class="comment">// log.Printf(&quot;Worker: %v exit&quot;, os.Getpid())</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<h5 id="coordinator-go"><a href="#coordinator-go" class="headerlink" title="coordinator.go"></a>coordinator.go</h5><p>个人认为 <code>coordinator.go</code> 的实现颇具技巧，网络上很多实现有大量评论代码“很不 Go”，没有 Go 的风格。</p>
+<p>我虽说不是 Go 的高手，但也有一段时间具体学习了一下 Go 这门语言，参加了一些开源项目，对自己的代码风格还有有些信心，在这里自卖自夸一下2333，话不多说，先是 import：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> (</span><br><span class="line">	<span class="string">&quot;fmt&quot;</span></span><br><span class="line">	<span class="string">&quot;log&quot;</span></span><br><span class="line">	<span class="string">&quot;sync&quot;</span></span><br><span class="line">	<span class="string">&quot;time&quot;</span></span><br><span class="line">)</span><br></pre></td></tr></table></figure>
+
+<p>对 <code>Coordinator</code> 结构体的修改，添加了一些字段用于操作：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">type</span> Coordinator <span class="keyword">struct</span> &#123;</span><br><span class="line">	<span class="comment">// Your definitions here.</span></span><br><span class="line">	<span class="comment">// 保存一下 nReduce</span></span><br><span class="line">	nReduce <span class="type">int</span></span><br><span class="line"></span><br><span class="line">	<span class="comment">// 定义任务队列和任务的计数器，</span></span><br><span class="line">	<span class="comment">// 用于任务的发送，判断 Map 和 Reduce 任务的交界以及何时关闭 Coordinator</span></span><br><span class="line">	<span class="comment">// task sending definition</span></span><br><span class="line">	taskQueue <span class="keyword">chan</span> Task</span><br><span class="line">	taskWg    sync.WaitGroup</span><br><span class="line"></span><br><span class="line">	<span class="comment">// 任务 Id 计数器，自增</span></span><br><span class="line">	<span class="comment">// task id counter</span></span><br><span class="line">	taskIdCounter <span class="type">int</span></span><br><span class="line"></span><br><span class="line">	<span class="comment">// 保存用于通知任务完成的 chan 的字段，</span></span><br><span class="line">	<span class="comment">// 若 Worker 完成并调用 RPC，处理函数会向对应的 channel 发送一个信号</span></span><br><span class="line">	<span class="comment">// task notification record</span></span><br><span class="line">	taskNotifyMap  <span class="keyword">map</span>[<span class="type">int</span>]<span class="keyword">chan</span> <span class="keyword">struct</span>&#123;&#125;</span><br><span class="line">	taskNotifyLock sync.Mutex</span><br><span class="line"></span><br><span class="line">	<span class="comment">// 用于标记所有任务是否完成</span></span><br><span class="line">	<span class="comment">// done flag</span></span><br><span class="line">	done     <span class="type">bool</span></span><br><span class="line">	doneLock sync.Mutex</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="comment">// 获得一个新的 taskId</span></span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="params">(c *Coordinator)</span></span> NewTaskId() <span class="type">int</span> &#123;</span><br><span class="line">	c.taskIdCounter++</span><br><span class="line">	<span class="keyword">return</span> c.taskIdCounter</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="comment">// Done 函数，返回所有任务是否已经完成</span></span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="params">(c *Coordinator)</span></span> Done() <span class="type">bool</span> &#123;</span><br><span class="line">	c.doneLock.Lock()</span><br><span class="line">	ret := c.done</span><br><span class="line">	c.doneLock.Unlock()</span><br><span class="line"></span><br><span class="line">	<span class="comment">// Your code here.</span></span><br><span class="line">	<span class="keyword">return</span> ret</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><code>MakeCoordinator</code> 函数的设计：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">MakeCoordinator</span><span class="params">(files []<span class="type">string</span>, nReduce <span class="type">int</span>)</span></span> *Coordinator &#123;</span><br><span class="line">	<span class="comment">// 初始化一个 Coordinator</span></span><br><span class="line">	c := Coordinator&#123;</span><br><span class="line">		nReduce:       nReduce,</span><br><span class="line">		taskQueue:     <span class="built_in">make</span>(<span class="keyword">chan</span> Task, <span class="number">100</span>),</span><br><span class="line">		taskWg:        sync.WaitGroup&#123;&#125;,</span><br><span class="line">		taskIdCounter: <span class="number">0</span>,</span><br><span class="line">		taskNotifyMap: <span class="built_in">make</span>(<span class="keyword">map</span>[<span class="type">int</span>]<span class="keyword">chan</span> <span class="keyword">struct</span>&#123;&#125;),</span><br><span class="line">		done:          <span class="literal">false</span>,</span><br><span class="line">	&#125;</span><br><span class="line">	<span class="comment">// log.Printf(&quot;%d file found\n&quot;, len(files))</span></span><br><span class="line"></span><br><span class="line">	<span class="comment">// 由于 Reduce 任务必须在所有 Map 任务完成后才能开始</span></span><br><span class="line">	<span class="comment">// 添加 Map 任务计数到 WaitGroup，用于标识所有的 Map 任务是否完成</span></span><br><span class="line">	c.taskWg.Add(<span class="built_in">len</span>(files))</span><br><span class="line"></span><br><span class="line">	<span class="comment">// Your code here.</span></span><br><span class="line"></span><br><span class="line">	<span class="comment">// 开启一个新的 goroutine 向 c.taskQueue channel 中发送任务</span></span><br><span class="line">	<span class="comment">// make send task goroutine</span></span><br><span class="line">	<span class="keyword">go</span> <span class="function"><span class="keyword">func</span><span class="params">(files []<span class="type">string</span>)</span></span> &#123;</span><br><span class="line">		<span class="comment">// 发送 Map 任务</span></span><br><span class="line">		<span class="comment">// send map task</span></span><br><span class="line">		<span class="keyword">for</span> _, filename := <span class="keyword">range</span> files &#123;</span><br><span class="line">			c.taskQueue &lt;- NewMapTask(filename, c.NewTaskId())</span><br><span class="line">		&#125;</span><br><span class="line">		<span class="comment">// log.Println(&quot;all task sent, waiting for next reduce task&quot;)</span></span><br><span class="line">		<span class="comment">// 等待所有 Map 任务完成，这时才能发送 Reduce 任务</span></span><br><span class="line">		<span class="comment">// wait for all map task done</span></span><br><span class="line">		c.taskWg.Wait()</span><br><span class="line">		<span class="comment">// log.Println(&quot;start sending reduce task&quot;)</span></span><br><span class="line"></span><br><span class="line">		<span class="comment">// 添加 Reduce 任务的计数</span></span><br><span class="line">		<span class="comment">// send reduce task</span></span><br><span class="line">		c.taskWg.Add(nReduce)</span><br><span class="line">        </span><br><span class="line">		<span class="comment">// 下面这个 goroutine 的作用是</span></span><br><span class="line">		<span class="comment">// 等待 WaitGroup 值为 0 时，此时表示所有的 Reduce 任务也完成了</span></span><br><span class="line">		<span class="comment">// 所以可以将 c.done 置为 true，表示 Coordinator 可以结束了</span></span><br><span class="line">		<span class="comment">// make Done() check goroutine</span></span><br><span class="line">		<span class="comment">// log.Println(&quot;waiting exit goroutine created&quot;)</span></span><br><span class="line">		<span class="keyword">go</span> <span class="function"><span class="keyword">func</span><span class="params">()</span></span> &#123;</span><br><span class="line">			c.taskWg.Wait()</span><br><span class="line">			c.doneLock.Lock()</span><br><span class="line">			c.done = <span class="literal">true</span></span><br><span class="line">			c.doneLock.Unlock()</span><br><span class="line">		&#125;()</span><br><span class="line">		<span class="comment">// log.Println(&quot;sending reduce task&quot;)</span></span><br><span class="line"></span><br><span class="line">		<span class="comment">// 发送 Reduce 任务</span></span><br><span class="line">		<span class="keyword">for</span> i := <span class="number">0</span>; i &lt; nReduce; i++ &#123;</span><br><span class="line">			c.taskQueue &lt;- NewReduceTask(i, c.NewTaskId())</span><br><span class="line">		&#125;</span><br><span class="line">	&#125;(files)</span><br><span class="line"></span><br><span class="line">	c.server()</span><br><span class="line">	<span class="keyword">return</span> &amp;c</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><code>NeedWork</code> RPC 函数：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">func</span> <span class="params">(c *Coordinator)</span></span> NeedWork(args *NeedWorkArgs, reply *NeedWorkReply) <span class="type">error</span> &#123;</span><br><span class="line">	<span class="comment">// 从任务队列 c.taskQueue 中取出一个任务作为 RPC 返回值</span></span><br><span class="line">	task, ok := &lt;-c.taskQueue</span><br><span class="line">	<span class="keyword">if</span> !ok &#123;</span><br><span class="line">		<span class="keyword">return</span> fmt.Errorf(<span class="string">&quot;cannot get task from task queue&quot;</span>)</span><br><span class="line">	&#125;</span><br><span class="line">	reply.T = task</span><br><span class="line">	reply.ReduceCnt = c.nReduce</span><br><span class="line"></span><br><span class="line">	<span class="comment">// 使用 taskId 作为唯一任务标识，创建一个 struct&#123;&#125; channel</span></span><br><span class="line">	<span class="comment">// 用于 FinishWork RPC 函数通知任务已被 Worker 完成</span></span><br><span class="line">	<span class="comment">// 注意锁的临界区，否则会导致 condition race</span></span><br><span class="line">	<span class="comment">// make task notification channel</span></span><br><span class="line">	c.taskNotifyLock.Lock()</span><br><span class="line">	c.taskNotifyMap[task.TaskId] = <span class="built_in">make</span>(<span class="keyword">chan</span> <span class="keyword">struct</span>&#123;&#125;)</span><br><span class="line">	<span class="comment">// 启动 goroutine 定时</span></span><br><span class="line">	<span class="comment">// set timer for task</span></span><br><span class="line">	<span class="keyword">go</span> <span class="function"><span class="keyword">func</span><span class="params">(taskChan <span class="keyword">chan</span> <span class="keyword">struct</span>&#123;&#125;)</span></span> &#123;</span><br><span class="line">		<span class="keyword">select</span> &#123;</span><br><span class="line">		<span class="keyword">case</span> &lt;-taskChan:</span><br><span class="line">			<span class="comment">// 任务完成</span></span><br><span class="line">			<span class="comment">// task done</span></span><br><span class="line">			<span class="keyword">return</span></span><br><span class="line">		<span class="keyword">case</span> &lt;-time.After(<span class="number">10</span> * time.Second):</span><br><span class="line">			<span class="comment">// 任务超时，重新将任务放回任务队列中</span></span><br><span class="line">			c.taskQueue &lt;- task</span><br><span class="line">		&#125;</span><br><span class="line">	&#125;(c.taskNotifyMap[task.TaskId])</span><br><span class="line">	c.taskNotifyLock.Unlock()</span><br><span class="line"></span><br><span class="line">	<span class="keyword">return</span> <span class="literal">nil</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><code>FinishWork</code> RPC 函数：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">func</span> <span class="params">(c *Coordinator)</span></span> FinishWork(args *FinishWorkArgs, reply *FinishWorkReply) <span class="type">error</span> &#123;</span><br><span class="line">	taskId := args.TaskId</span><br><span class="line">	c.taskNotifyLock.Lock()</span><br><span class="line">	<span class="comment">// 思考这里为什么要检查 taskId 所对应的值是否有效</span></span><br><span class="line">	<span class="comment">// 若考虑网络延迟之类的不确定因素，可能导致同一个 taskId 调用两次 FinishWork 函数</span></span><br><span class="line">	notifyChan, ok := c.taskNotifyMap[taskId]</span><br><span class="line">	<span class="keyword">if</span> !ok &#123;</span><br><span class="line">		c.taskNotifyLock.Unlock()</span><br><span class="line">		<span class="keyword">return</span> <span class="literal">nil</span></span><br><span class="line">	&#125;</span><br><span class="line">	<span class="comment">// 向对应 channel 发送信号表示任务完成，同时任务计数 -1</span></span><br><span class="line">	<span class="comment">// notify task done</span></span><br><span class="line">	notifyChan &lt;- <span class="keyword">struct</span>&#123;&#125;&#123;&#125;</span><br><span class="line">	c.taskWg.Done()</span><br><span class="line">	<span class="comment">// log.Printf(&quot;task %d done\n&quot;, taskId)</span></span><br><span class="line"></span><br><span class="line">	<span class="comment">// 删除对应的 channel</span></span><br><span class="line">	<span class="comment">// delete task notification channel</span></span><br><span class="line">	<span class="built_in">delete</span>(c.taskNotifyMap, taskId)</span><br><span class="line">	c.taskNotifyLock.Unlock()</span><br><span class="line">	<span class="keyword">return</span> <span class="literal">nil</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<h4 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h4><p>通过这个实验我大致搞明白了一个简单的分布式系统由哪些部分组成。至此，分布式系统的 Lab1 完成，我认为难点不在代码的实现，而是题目的理解。更干净的代码实现见本人的 <a target="_blank" rel="noopener" href="https://github.com/KujouRinka/6.824-2022/commits/master">github commit history</a></p>
+
+      
+    </div>
+    <footer class="article-footer">
+      <a data-url="https://kujourinka.github.io/2022/12/23/6824_lab1_MapReduce/" data-id="cll2gun8i0000d8p061q241v7" data-title="6.824 Lab1 MapReduce 快速实现" class="article-share-link">Teilen</a>
+      
+      
+      
+    </footer>
+  </div>
+  
+    
+<nav id="article-nav">
+  
+    <a href="/2023/02/08/6824_lab2a_leader_election/" id="article-nav-newer" class="article-nav-link-wrap">
+      <strong class="article-nav-caption">Neuer</strong>
+      <div class="article-nav-title">
+        
+          6.824 Lab2A Leader Election 可行方案
+        
+      </div>
+    </a>
+  
+  
+    <a href="/2022/12/04/6s018_lab5cow/" id="article-nav-older" class="article-nav-link-wrap">
+      <strong class="article-nav-caption">Älter</strong>
+      <div class="article-nav-title">6.s018 lab5 cow(Copy-on-write fork) 踩坑指南</div>
+    </a>
+  
+</nav>
+
+  
+</article>
+
+
+</section>
+        
+          <aside id="sidebar">
+  
+    
+
+  
+    
+
+  
+    
+  
+    
+  <div class="widget-wrap">
+    <h3 class="widget-title">Archiv</h3>
+    <div class="widget">
+      <ul class="archive-list"><li class="archive-list-item"><a class="archive-list-link" href="/archives/2023/08/">August 2023</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2023/04/">April 2023</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2023/03/">March 2023</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2023/02/">February 2023</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2022/12/">December 2022</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2022/06/">June 2022</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2022/03/">March 2022</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2022/02/">February 2022</a></li></ul>
+    </div>
+  </div>
+
+
+  
+    
+  <div class="widget-wrap">
+    <h3 class="widget-title">letzter Beitrag</h3>
+    <div class="widget">
+      <ul>
+        
+          <li>
+            <a href="/2023/08/08/re0_ss1/">从零写一个 shadowsocks（1）</a>
+          </li>
+        
+          <li>
+            <a href="/2023/04/20/simple_impl_for_lazy/">简记一次 rCore 中 sys_sbrk() 与 lazy allocation 的实现</a>
+          </li>
+        
+          <li>
+            <a href="/2023/03/21/nic_driver_kara_syscall_he/">从网卡驱动到系统调用</a>
+          </li>
+        
+          <li>
+            <a href="/2023/02/08/6824_lab2a_leader_election/">6.824 Lab2A Leader Election 可行方案</a>
+          </li>
+        
+          <li>
+            <a href="/2022/12/23/6824_lab1_MapReduce/">6.824 Lab1 MapReduce 快速实现</a>
+          </li>
+        
+      </ul>
+    </div>
+  </div>
+
+  
+</aside>
+        
+      </div>
+      <footer id="footer">
+  
+  <div class="outer">
+    <div id="footer-info" class="inner">
+      
+      &copy; 2023 Kujou Rinka<br>
+      Powered by <a href="https://hexo.io/" target="_blank">Hexo</a>
+    </div>
+  </div>
+</footer>
+
+    </div>
+    <nav id="mobile-nav">
+  
+    <a href="/" class="mobile-nav-link">Home</a>
+  
+    <a href="/archives" class="mobile-nav-link">Archives</a>
+  
+</nav>
+    
+
+
+<script src="/js/jquery-3.4.1.min.js"></script>
+
+
+
+  
+<script src="/fancybox/jquery.fancybox.min.js"></script>
+
+
+
+
+<script src="/js/script.js"></script>
+
+
+
+
+
+  </div>
+</body>
+</html>

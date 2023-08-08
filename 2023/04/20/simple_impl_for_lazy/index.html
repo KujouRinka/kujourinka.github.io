@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  
+  
+  <title>简记一次 rCore 中 sys_sbrk() 与 lazy allocation 的实现 | Hexo</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+  <meta name="description" content="sbrk() 的作用sbrk() 系统是做什么的，可以参考这里，简要来说，就是调整用户程序的堆（heap）顶位置，表现为对堆大小的增大或缩小。 rCore 的地址空间布局与调整这里的 sbrk() 实现仅与用户虚拟地址空间有关。参考这里。 对于 rCore 原始布局，在低地址部分，从低地址往高地址依次为：.text，.rodata，.data，.bss，guard page，user stack，">
+<meta property="og:type" content="article">
+<meta property="og:title" content="简记一次 rCore 中 sys_sbrk() 与 lazy allocation 的实现">
+<meta property="og:url" content="https://kujourinka.github.io/2023/04/20/simple_impl_for_lazy/index.html">
+<meta property="og:site_name" content="Hexo">
+<meta property="og:description" content="sbrk() 的作用sbrk() 系统是做什么的，可以参考这里，简要来说，就是调整用户程序的堆（heap）顶位置，表现为对堆大小的增大或缩小。 rCore 的地址空间布局与调整这里的 sbrk() 实现仅与用户虚拟地址空间有关。参考这里。 对于 rCore 原始布局，在低地址部分，从低地址往高地址依次为：.text，.rodata，.data，.bss，guard page，user stack，">
+<meta property="og:locale">
+<meta property="og:image" content="https://raw.githubusercontent.com/rcore-os/rCore-Tutorial-Book-v3/main/source/chapter4/app-as-full.png">
+<meta property="article:published_time" content="2023-04-20T09:00:00.000Z">
+<meta property="article:modified_time" content="2023-08-08T15:38:20.094Z">
+<meta property="article:author" content="Kujou Rinka">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://raw.githubusercontent.com/rcore-os/rCore-Tutorial-Book-v3/main/source/chapter4/app-as-full.png">
+  
+    <link rel="alternate" href="/atom.xml" title="Hexo" type="application/atom+xml">
+  
+  
+    <link rel="shortcut icon" href="/favicon.png">
+  
+  
+    
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/typeface-source-code-pro@0.0.71/index.min.css">
+
+  
+  
+<link rel="stylesheet" href="/css/style.css">
+
+  
+    
+<link rel="stylesheet" href="/fancybox/jquery.fancybox.min.css">
+
+  
+<meta name="generator" content="Hexo 6.0.0"></head>
+
+<body>
+  <div id="container">
+    <div id="wrap">
+      <header id="header">
+  <div id="banner"></div>
+  <div id="header-outer" class="outer">
+    <div id="header-title" class="inner">
+      <h1 id="logo-wrap">
+        <a href="/" id="logo">Hexo</a>
+      </h1>
+      
+        <h2 id="subtitle-wrap">
+          <a href="/" id="subtitle">Rinka 的随笔</a>
+        </h2>
+      
+    </div>
+    <div id="header-inner" class="inner">
+      <nav id="main-nav">
+        <a id="main-nav-toggle" class="nav-icon"></a>
+        
+          <a class="main-nav-link" href="/">Home</a>
+        
+          <a class="main-nav-link" href="/archives">Archives</a>
+        
+      </nav>
+      <nav id="sub-nav">
+        
+          <a id="nav-rss-link" class="nav-icon" href="/atom.xml" title="RSS Feed"></a>
+        
+        <a id="nav-search-btn" class="nav-icon" title="Suche"></a>
+      </nav>
+      <div id="search-form-wrap">
+        <form action="//google.com/search" method="get" accept-charset="UTF-8" class="search-form"><input type="search" name="q" class="search-form-input" placeholder="Suche"><button type="submit" class="search-form-submit">&#xF002;</button><input type="hidden" name="sitesearch" value="https://kujourinka.github.io"></form>
+      </div>
+    </div>
+  </div>
+</header>
+
+      <div class="outer">
+        <section id="main"><article id="post-simple_impl_for_lazy" class="h-entry article article-type-post" itemprop="blogPost" itemscope itemtype="https://schema.org/BlogPosting">
+  <div class="article-meta">
+    <a href="/2023/04/20/simple_impl_for_lazy/" class="article-date">
+  <time class="dt-published" datetime="2023-04-20T09:00:00.000Z" itemprop="datePublished">2023-04-20</time>
+</a>
+    
+  </div>
+  <div class="article-inner">
+    
+    
+      <header class="article-header">
+        
+  
+    <h1 class="p-name article-title" itemprop="headline name">
+      简记一次 rCore 中 sys_sbrk() 与 lazy allocation 的实现
+    </h1>
+  
+
+      </header>
+    
+    <div class="e-content article-entry" itemprop="articleBody">
+      
+        <h4 id="sbrk-的作用"><a href="#sbrk-的作用" class="headerlink" title="sbrk() 的作用"></a>sbrk() 的作用</h4><p><code>sbrk()</code> 系统是做什么的，可以参考<a target="_blank" rel="noopener" href="https://man7.org/linux/man-pages/man2/brk.2.html">这里</a>，简要来说，就是调整用户程序的堆（heap）顶位置，表现为对堆大小的增大或缩小。</p>
+<h4 id="rCore-的地址空间布局与调整"><a href="#rCore-的地址空间布局与调整" class="headerlink" title="rCore 的地址空间布局与调整"></a>rCore 的地址空间布局与调整</h4><p>这里的 <code>sbrk()</code> 实现仅与用户虚拟地址空间有关。参考<a target="_blank" rel="noopener" href="http://rcore-os.cn/rCore-Tutorial-Book-v3/chapter4/5kernel-app-spaces.html#term-vm-app-addr-space">这里</a>。</p>
+<p>对于 rCore 原始布局，在低地址部分，从低地址往高地址依次为：<code>.text</code>，<code>.rodata</code>，<code>.data</code>，<code>.bss</code>，<code>guard page</code>，<code>user stack</code>，随后才是 <code>heap</code>：</p>
+<p><img src="https://raw.githubusercontent.com/rcore-os/rCore-Tutorial-Book-v3/main/source/chapter4/app-as-full.png" alt="application address space"></p>
+<p>但我对这个布局不太满意，于是通过修改 <code>mm::memory_set::MemorySet::from_elf()</code>，将空间布局修改为如下：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br></pre></td><td class="code"><pre><span class="line">/// High 256GB</span><br><span class="line">/// +-------------------+</span><br><span class="line">/// |  Trampoline Code  |</span><br><span class="line">/// +-------------------+  &lt;- TRAMPOLINE</span><br><span class="line">/// |    TrapContext    |</span><br><span class="line">/// +-------------------+  &lt;- TRAP_CONTEXT, user_stack_top</span><br><span class="line">/// |    User Stack     |</span><br><span class="line">/// +-------------------+  &lt;- user_stack_bottom</span><br><span class="line">/// |       ...         |</span><br><span class="line">///</span><br><span class="line">/// Low 256GB</span><br><span class="line">/// |       ...         |</span><br><span class="line">/// +-------------------+</span><br><span class="line">/// |    Heap Memory    |</span><br><span class="line">/// +-------------------+  &lt;- heap_bottom</span><br><span class="line">/// |      .bss         |</span><br><span class="line">/// +-------------------+</span><br><span class="line">/// |      .data        |</span><br><span class="line">/// +-------------------+</span><br><span class="line">/// |      .rodata      |</span><br><span class="line">/// +-------------------+</span><br><span class="line">/// |      .text        |</span><br><span class="line">/// +-------------------+  &lt;- BASE_ADDRESS (0x10000 va)</span><br></pre></td></tr></table></figure>
+
+<p>heap 紧挨着 bss 段，而 user stack 调整到高地址处。这么做的原因是当物理地址理论足够的情况下，可以方便 heap 和 user stack 的拓展，同时由于二者位置相差大，不太可能重叠，而原实现相较于此，user stack 的大小限制为 8K（即两个 PAGE SIZE），由由于其位置的特殊性，上有 heap 空间，下有 guard page，kernel 段，难以拓展。这个修改很简单，我们的重点不在这里。</p>
+<h4 id="sbrk"><a href="#sbrk" class="headerlink" title="sbrk()"></a>sbrk()</h4><p>与其他的系统调用实现一样，先添加系统调用接口，再实现具体的逻辑。</p>
+<figure class="highlight rust"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">pub</span> <span class="keyword">fn</span> <span class="title function_">sys_sbrk</span>(size: <span class="type">i32</span>) <span class="punctuation">-&gt;</span> <span class="type">isize</span> &#123;</span><br><span class="line">  <span class="keyword">if</span> <span class="keyword">let</span> <span class="variable">Some</span>(old_brk) = <span class="title function_ invoke__">change_program_brk</span>(size) &#123;</span><br><span class="line">    <span class="keyword">return</span> old_brk <span class="keyword">as</span> <span class="type">isize</span></span><br><span class="line">  &#125; <span class="keyword">else</span> &#123;</span><br><span class="line">    -<span class="number">1</span></span><br><span class="line">  &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>顺着调用链，我们来到 <code>task::task::TaskControlBlock::change_brk()</code>，这是实际的 sbrk 的实现。主要的逻辑为根据判断传入的参数的正负判断堆空间的缩减，并更新相应的堆顶指针：</p>
+<figure class="highlight rust"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// ...</span></span><br><span class="line"><span class="keyword">let</span> <span class="variable">old_brk</span> = <span class="keyword">self</span>.program_brk;</span><br><span class="line"><span class="keyword">let</span> <span class="variable">new_brk</span> = <span class="keyword">self</span>.program_brk <span class="keyword">as</span> <span class="type">isize</span> + size <span class="keyword">as</span> <span class="type">isize</span>;</span><br><span class="line"><span class="keyword">let</span> <span class="variable">result</span> = <span class="keyword">if</span> size &lt; <span class="number">0</span> &#123;</span><br><span class="line">  <span class="comment">// shrink heap</span></span><br><span class="line">  <span class="keyword">self</span>.memory_set.<span class="title function_ invoke__">shrink_to</span>(...)</span><br><span class="line">&#125; <span class="keyword">else</span> &#123;</span><br><span class="line">  <span class="comment">// extend heap</span></span><br><span class="line">  <span class="keyword">self</span>.memory_set.<span class="title function_ invoke__">append_to</span>(...)</span><br><span class="line">&#125;;</span><br><span class="line"><span class="keyword">if</span> result &#123;</span><br><span class="line">  <span class="keyword">self</span>.program_brk = new_brk <span class="keyword">as</span> <span class="type">usize</span>;</span><br><span class="line">  <span class="title function_ invoke__">Some</span>(old_brk)</span><br><span class="line">&#125; <span class="keyword">else</span> &#123;</span><br><span class="line">  <span class="literal">None</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>缩小和扩大 heap 空间分别对应 <code>shrink_to</code> 和 <code>append_to</code> 两个函数，而二者的逻辑较为相似，这里以 <code>append_to</code> 为例：</p>
+<figure class="highlight rust"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">pub</span> <span class="keyword">fn</span> <span class="title function_">append_to</span>(&amp;<span class="keyword">mut</span> <span class="keyword">self</span>, page_table: &amp;<span class="keyword">mut</span> PageTable, new_end: VirtPageNum) &#123;</span><br><span class="line">  <span class="keyword">for</span> <span class="variable">vpn</span> <span class="keyword">in</span> VPNRange::<span class="title function_ invoke__">new</span>(<span class="keyword">self</span>.vpn_range.<span class="title function_ invoke__">get_end</span>(), new_end) &#123;</span><br><span class="line">    <span class="keyword">self</span>.<span class="title function_ invoke__">map_one</span>(page_table, vpn);</span><br><span class="line">  &#125;</span><br><span class="line">  <span class="keyword">self</span>.vpn_range = VPNRange::<span class="title function_ invoke__">new</span>(<span class="keyword">self</span>.vpn_range.<span class="title function_ invoke__">get_start</span>(), new_end);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>即朴实地为每一页在 PageTable 里创建一个映射，并没有什么花里胡哨的东西。</p>
+<h4 id="lazy-alloc"><a href="#lazy-alloc" class="headerlink" title="lazy alloc"></a>lazy alloc</h4><p>lazy alloc 可以概括为：只标记，需要时分配。</p>
+<p>具体来说：</p>
+<ul>
+<li>当调用 <code>sbrk()</code> 申请拓展 heap 空间，内核只增加堆顶指针（在这里是 <code>TaskControlBlock::program_brk</code>）的值，不做实际的内存分配，添加映射。用户程序访问这段内存会引起 PageFault，我们在处理该 Trap 的时候通过 <code>stval</code> 寄存器判断该地址是否位于 <code>heap_bottom</code> 和 <code>program_brk</code> 之间，若是，分配实际内存，添加页表映射；</li>
+<li>当调用 <code>sbrk()</code> 申请缩小 heap 空间，需要减小 <code>program_brk</code> 的值，同时收回原堆顶和现堆顶之间的 page。</li>
+</ul>
+<h5 id="拓展-PageTable"><a href="#拓展-PageTable" class="headerlink" title="拓展 PageTable"></a>拓展 PageTable</h5><p>由于原实现中 <code>PageTable::map()</code> 和 <code>PageTable::unmap()</code> 在接口方面实现较为有限，我将其进行了拓展，将</p>
+<figure class="highlight rust"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">pub</span> <span class="keyword">fn</span> <span class="title function_">map</span>(&amp;<span class="keyword">mut</span> <span class="keyword">self</span>, vpn: VirtPageNum, ppn: PhysPageNum, flags: PTEFlags, <span class="keyword">mut</span> frame: <span class="type">Option</span>&lt;FrameTracker&gt;);</span><br><span class="line"><span class="keyword">pub</span> <span class="keyword">fn</span> <span class="title function_">unmap</span>(&amp;<span class="keyword">mut</span> <span class="keyword">self</span>, vpn: VirtPageNum, dealloc: <span class="type">bool</span>);</span><br></pre></td></tr></table></figure>
+
+<p>修改为：</p>
+<figure class="highlight rust"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">pub</span> <span class="keyword">fn</span> <span class="title function_">map</span>(&amp;<span class="keyword">mut</span> <span class="keyword">self</span>, args: MapArgs) &#123;</span><br><span class="line">  <span class="keyword">let</span> <span class="variable">MapArgs</span> &#123; vpn, ppn, flags, <span class="keyword">mut</span> frame &#125; = args;</span><br><span class="line">  <span class="comment">// ...</span></span><br><span class="line">&#125;</span><br><span class="line"><span class="keyword">pub</span> <span class="keyword">fn</span> <span class="title function_">unmap</span>(&amp;<span class="keyword">mut</span> <span class="keyword">self</span>, args: UnmapArgs) &#123;</span><br><span class="line">  <span class="keyword">let</span> <span class="variable">vpn</span> = args.vpn;</span><br><span class="line">  <span class="keyword">let</span> <span class="variable">pte</span> = <span class="keyword">match</span> <span class="keyword">self</span>.<span class="title function_ invoke__">find_pte</span>(vpn) &#123;</span><br><span class="line">    <span class="title function_ invoke__">Some</span>(pte) <span class="keyword">if</span> pte.<span class="title function_ invoke__">is_valid</span>() =&gt; pte,</span><br><span class="line">    _ =&gt; <span class="keyword">if</span> args.panic &#123;</span><br><span class="line">      <span class="built_in">panic!</span>(<span class="string">&quot;vpn &#123;:?&#125; should mapped but not&quot;</span>, vpn);</span><br><span class="line">    &#125; <span class="keyword">else</span> &#123;</span><br><span class="line">      <span class="keyword">return</span>;</span><br><span class="line">    &#125;</span><br><span class="line">  &#125;;</span><br><span class="line">  <span class="comment">// ...</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>目前，<code>MapArgs</code> 和 <code>UnmapArgs</code> 中字段足够使用：</p>
+<figure class="highlight rust"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">pub</span> <span class="keyword">struct</span> <span class="title class_">MapArgs</span> &#123;</span><br><span class="line">  vpn: VirtPageNum,</span><br><span class="line">  ppn: PhysPageNum,</span><br><span class="line">  flags: PTEFlags,</span><br><span class="line">  frame: <span class="type">Option</span>&lt;FrameTracker&gt;,</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="keyword">pub</span> <span class="keyword">struct</span> <span class="title class_">UnmapArgs</span> &#123;</span><br><span class="line">  vpn: VirtPageNum,</span><br><span class="line">  dealloc: <span class="type">bool</span>,</span><br><span class="line">  panic: <span class="type">bool</span>,</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>这两个内以设计模式中的 Builder 设计，使用一系列的 <code>with_...</code> 成员函数调整参数。</p>
+<p>为了便于控制后续课程中 lazy_alloc 的使用与否，为 lazy alloc 新增一个 feature 并使用条件编译：</p>
+<figure class="highlight toml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># Cargo.toml</span></span><br><span class="line"><span class="comment"># ...</span></span><br><span class="line"><span class="section">[features]</span></span><br><span class="line"><span class="attr">default</span> = [<span class="string">&quot;sbrk_lazy_alloc&quot;</span>]</span><br><span class="line"><span class="attr">sbrk_lazy_alloc</span> = []</span><br></pre></td></tr></table></figure>
+
+<h5 id="Trap"><a href="#Trap" class="headerlink" title="Trap"></a>Trap</h5><p><code>trap_handler</code> 中为 lazy alloc 添加的入口：</p>
+<figure class="highlight rust"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line">Trap::<span class="title function_ invoke__">Exception</span>(Exception::StoreFault)</span><br><span class="line">| Trap::<span class="title function_ invoke__">Exception</span>(Exception::StorePageFault)</span><br><span class="line">| Trap::<span class="title function_ invoke__">Exception</span>(Exception::LoadFault)</span><br><span class="line">| Trap::<span class="title function_ invoke__">Exception</span>(Exception::LoadPageFault) =&gt; &#123;</span><br><span class="line">  <span class="keyword">let</span> <span class="variable">tcb</span> = <span class="title function_ invoke__">get_current_tcb_ref</span>();</span><br><span class="line">  <span class="keyword">let</span> <span class="variable">ok</span> = <span class="keyword">if</span> stval &gt;= tcb.heap_bottom &amp;&amp; stval &lt; tcb.program_brk &#123;</span><br><span class="line">    <span class="comment">// lazy allocation for sbrk()</span></span><br><span class="line">    <span class="meta">#[cfg(feature = <span class="string">&quot;sbrk_lazy_alloc&quot;</span>)]</span> &#123;</span><br><span class="line">      <span class="title function_ invoke__">lazy_alloc_page</span>(stval.<span class="title function_ invoke__">into</span>())</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="meta">#[cfg(not(feature = <span class="string">&quot;sbrk_lazy_alloc&quot;</span>))]</span> &#123;</span><br><span class="line">      <span class="literal">false</span></span><br><span class="line">    &#125;</span><br><span class="line"><span class="comment">// ...</span></span><br></pre></td></tr></table></figure>
+
+<p>当判断 <code>stval</code> 中的地址为 heap 中的有效地址时，使用 <code>lazy_alloc_page()</code> 分配一页内存，实现较为简单，这里不过分说明。</p>
+<h5 id="change-brk"><a href="#change-brk" class="headerlink" title="change_brk()"></a>change_brk()</h5><p>我们的重点是 <code>change_brk()</code> 的修改：</p>
+<figure class="highlight rust"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">pub</span> <span class="keyword">fn</span> <span class="title function_">change_brk</span>(&amp;<span class="keyword">mut</span> <span class="keyword">self</span>, size: <span class="type">i32</span>) <span class="punctuation">-&gt;</span> <span class="type">Option</span>&lt;<span class="type">usize</span>&gt; &#123;</span><br><span class="line">  <span class="keyword">let</span> <span class="variable">old_brk</span> = <span class="keyword">self</span>.program_brk;</span><br><span class="line">  <span class="keyword">let</span> <span class="variable">new_brk</span> = <span class="keyword">self</span>.program_brk <span class="keyword">as</span> <span class="type">isize</span> + size <span class="keyword">as</span> <span class="type">isize</span>;</span><br><span class="line">  <span class="keyword">if</span> new_brk &lt; <span class="keyword">self</span>.heap_bottom <span class="keyword">as</span> <span class="type">isize</span> &#123;</span><br><span class="line">    <span class="keyword">return</span> <span class="literal">None</span>;</span><br><span class="line">  &#125;</span><br><span class="line">  <span class="keyword">let</span> <span class="variable">ok</span>;</span><br><span class="line">  cfg_if! &#123;</span><br><span class="line">    <span class="keyword">if</span> <span class="meta">#[cfg(feature = <span class="string">&quot;sbrk_lazy_alloc&quot;</span>)]</span> &#123;</span><br><span class="line">      ok = <span class="literal">true</span>;</span><br><span class="line">      <span class="keyword">if</span> size &lt; <span class="number">0</span> &#123;</span><br><span class="line">        <span class="keyword">self</span>.memory_set</span><br><span class="line">          .<span class="title function_ invoke__">remove_framed_area</span>(</span><br><span class="line">            VirtAddr::<span class="title function_ invoke__">from</span>(new_brk <span class="keyword">as</span> <span class="type">usize</span>),</span><br><span class="line">            VirtAddr::<span class="title function_ invoke__">from</span>(<span class="keyword">self</span>.program_brk),</span><br><span class="line">          );</span><br><span class="line">      &#125;</span><br><span class="line">    &#125; <span class="keyword">else</span> &#123;</span><br><span class="line">      <span class="comment">// ...</span></span><br><span class="line">    &#125;</span><br><span class="line">  &#125;</span><br><span class="line">  <span class="keyword">if</span> ok &#123;</span><br><span class="line">    <span class="keyword">self</span>.program_brk = new_brk <span class="keyword">as</span> <span class="type">usize</span>;</span><br><span class="line">    <span class="title function_ invoke__">Some</span>(old_brk)</span><br><span class="line">  &#125; <span class="keyword">else</span> &#123;</span><br><span class="line">    <span class="literal">None</span></span><br><span class="line">  &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>我们注意到，当 <code>size &gt; 0</code> 我们仅仅增加了 <code>program_brk</code> 的值就返回，其他什么事也不做，而当该值小于 0，只增加了一点微不足道的操作：释放减少的那段空间。</p>
+<p>至于为什么我拓展了 PageTable 的参数，下面以 <code>remove_framed_area</code> 为例：</p>
+<figure class="highlight rust"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">pub</span> <span class="keyword">fn</span> <span class="title function_">remove_framed_area</span>(</span><br><span class="line">  &amp;<span class="keyword">mut</span> <span class="keyword">self</span>,</span><br><span class="line">  start_va: VirtAddr,</span><br><span class="line">  end_va: VirtAddr,</span><br><span class="line">) &#123;</span><br><span class="line">  <span class="keyword">for</span> <span class="variable">vpn</span> <span class="keyword">in</span> VPNRange::<span class="title function_ invoke__">new</span>(start_va.<span class="title function_ invoke__">ceil</span>(), end_va.<span class="title function_ invoke__">floor</span>()) &#123;</span><br><span class="line">    <span class="keyword">self</span>.page_table.<span class="title function_ invoke__">unmap</span>(</span><br><span class="line">      UnmapArgs::<span class="title function_ invoke__">builder</span>(vpn)</span><br><span class="line">        .<span class="title function_ invoke__">with_dealloc</span>(<span class="literal">true</span>)</span><br><span class="line">        .<span class="title function_ invoke__">with_panic</span>(<span class="literal">false</span>),</span><br><span class="line">    )</span><br><span class="line">  &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>可以看到我们通过链式构造一步一步对 <code>UnmapArgs</code> 做出了要求，我们要求释放物理地址，并且保证不会 panic。这里我们为什么要保证不会 panic？由于原实现中的 <code>unmap()</code>，设计默认认为传给它的参数一定经过映射，当无法找到最后一级页表时，会认为是内核设计出现了 bug，于是直接通过 <code>unwarp()</code> 进行了 panic。</p>
+<p>而这里我们释放 heap 空间，由于 lazy alloc 的存在，我们并不能事先知道哪些 page 被映射了而哪些没有，我们又不想付出额外的存储代价，于是选择对这段释放的空间的每一 page 进行遍历，其中有很大概率会遇见由于从未读写而未进行分配的 page，这样直接作为参数传给原来的 <code>unmap()</code> 必然会导致内核 panic，于是抽象出了 <code>unmap()</code> 的参数，为其添加 <code>panic</code> 字段，用于提示 <code>unmap()</code> 是否能够 panic。</p>
+<p>最终的实现见 <a target="_blank" rel="noopener" href="https://github.com/KujouRinka/rCore/tree/876012b64189dd9c65e72743d4dbec9e72f22884">#876012b</a></p>
+
+      
+    </div>
+    <footer class="article-footer">
+      <a data-url="https://kujourinka.github.io/2023/04/20/simple_impl_for_lazy/" data-id="cll2gun8u0008d8p04qw9f7n0" data-title="简记一次 rCore 中 sys_sbrk() 与 lazy allocation 的实现" class="article-share-link">Teilen</a>
+      
+      
+      
+    </footer>
+  </div>
+  
+    
+<nav id="article-nav">
+  
+    <a href="/2023/08/08/re0_ss1/" id="article-nav-newer" class="article-nav-link-wrap">
+      <strong class="article-nav-caption">Neuer</strong>
+      <div class="article-nav-title">
+        
+          从零写一个 shadowsocks（1）
+        
+      </div>
+    </a>
+  
+  
+    <a href="/2023/03/21/nic_driver_kara_syscall_he/" id="article-nav-older" class="article-nav-link-wrap">
+      <strong class="article-nav-caption">Älter</strong>
+      <div class="article-nav-title">从网卡驱动到系统调用</div>
+    </a>
+  
+</nav>
+
+  
+</article>
+
+
+</section>
+        
+          <aside id="sidebar">
+  
+    
+
+  
+    
+
+  
+    
+  
+    
+  <div class="widget-wrap">
+    <h3 class="widget-title">Archiv</h3>
+    <div class="widget">
+      <ul class="archive-list"><li class="archive-list-item"><a class="archive-list-link" href="/archives/2023/08/">August 2023</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2023/04/">April 2023</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2023/03/">March 2023</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2023/02/">February 2023</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2022/12/">December 2022</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2022/06/">June 2022</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2022/03/">March 2022</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2022/02/">February 2022</a></li></ul>
+    </div>
+  </div>
+
+
+  
+    
+  <div class="widget-wrap">
+    <h3 class="widget-title">letzter Beitrag</h3>
+    <div class="widget">
+      <ul>
+        
+          <li>
+            <a href="/2023/08/08/re0_ss1/">从零写一个 shadowsocks（1）</a>
+          </li>
+        
+          <li>
+            <a href="/2023/04/20/simple_impl_for_lazy/">简记一次 rCore 中 sys_sbrk() 与 lazy allocation 的实现</a>
+          </li>
+        
+          <li>
+            <a href="/2023/03/21/nic_driver_kara_syscall_he/">从网卡驱动到系统调用</a>
+          </li>
+        
+          <li>
+            <a href="/2023/02/08/6824_lab2a_leader_election/">6.824 Lab2A Leader Election 可行方案</a>
+          </li>
+        
+          <li>
+            <a href="/2022/12/23/6824_lab1_MapReduce/">6.824 Lab1 MapReduce 快速实现</a>
+          </li>
+        
+      </ul>
+    </div>
+  </div>
+
+  
+</aside>
+        
+      </div>
+      <footer id="footer">
+  
+  <div class="outer">
+    <div id="footer-info" class="inner">
+      
+      &copy; 2023 Kujou Rinka<br>
+      Powered by <a href="https://hexo.io/" target="_blank">Hexo</a>
+    </div>
+  </div>
+</footer>
+
+    </div>
+    <nav id="mobile-nav">
+  
+    <a href="/" class="mobile-nav-link">Home</a>
+  
+    <a href="/archives" class="mobile-nav-link">Archives</a>
+  
+</nav>
+    
+
+
+<script src="/js/jquery-3.4.1.min.js"></script>
+
+
+
+  
+<script src="/fancybox/jquery.fancybox.min.js"></script>
+
+
+
+
+<script src="/js/script.js"></script>
+
+
+
+
+
+  </div>
+</body>
+</html>

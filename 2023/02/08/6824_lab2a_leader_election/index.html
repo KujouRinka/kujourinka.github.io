@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  
+  
+  <title>6.824 Lab2A Leader Election 可行方案 | Hexo</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+  <meta name="description" content="一些碎碎念书接上回，这是 6.824 的 lab2A，实现 raft 协议中的 leader election。关于 raft 的更多详细内容，raft paper 和网络上大多数文章一定会比我在这里介绍得详细，这里只给出一个链接，以动图的方式助于理解 raft 的工作原理：Raft，https:&#x2F;&#x2F;raft.github.io&#x2F; 也提供了一个可交互的动画，大家可以去玩一玩。 个人的这个实现相较于">
+<meta property="og:type" content="article">
+<meta property="og:title" content="6.824 Lab2A Leader Election 可行方案">
+<meta property="og:url" content="https://kujourinka.github.io/2023/02/08/6824_lab2a_leader_election/index.html">
+<meta property="og:site_name" content="Hexo">
+<meta property="og:description" content="一些碎碎念书接上回，这是 6.824 的 lab2A，实现 raft 协议中的 leader election。关于 raft 的更多详细内容，raft paper 和网络上大多数文章一定会比我在这里介绍得详细，这里只给出一个链接，以动图的方式助于理解 raft 的工作原理：Raft，https:&#x2F;&#x2F;raft.github.io&#x2F; 也提供了一个可交互的动画，大家可以去玩一玩。 个人的这个实现相较于">
+<meta property="og:locale">
+<meta property="article:published_time" content="2023-02-08T12:00:00.000Z">
+<meta property="article:modified_time" content="2023-08-08T15:38:20.094Z">
+<meta property="article:author" content="Kujou Rinka">
+<meta name="twitter:card" content="summary">
+  
+    <link rel="alternate" href="/atom.xml" title="Hexo" type="application/atom+xml">
+  
+  
+    <link rel="shortcut icon" href="/favicon.png">
+  
+  
+    
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/typeface-source-code-pro@0.0.71/index.min.css">
+
+  
+  
+<link rel="stylesheet" href="/css/style.css">
+
+  
+    
+<link rel="stylesheet" href="/fancybox/jquery.fancybox.min.css">
+
+  
+<meta name="generator" content="Hexo 6.0.0"></head>
+
+<body>
+  <div id="container">
+    <div id="wrap">
+      <header id="header">
+  <div id="banner"></div>
+  <div id="header-outer" class="outer">
+    <div id="header-title" class="inner">
+      <h1 id="logo-wrap">
+        <a href="/" id="logo">Hexo</a>
+      </h1>
+      
+        <h2 id="subtitle-wrap">
+          <a href="/" id="subtitle">Rinka 的随笔</a>
+        </h2>
+      
+    </div>
+    <div id="header-inner" class="inner">
+      <nav id="main-nav">
+        <a id="main-nav-toggle" class="nav-icon"></a>
+        
+          <a class="main-nav-link" href="/">Home</a>
+        
+          <a class="main-nav-link" href="/archives">Archives</a>
+        
+      </nav>
+      <nav id="sub-nav">
+        
+          <a id="nav-rss-link" class="nav-icon" href="/atom.xml" title="RSS Feed"></a>
+        
+        <a id="nav-search-btn" class="nav-icon" title="Suche"></a>
+      </nav>
+      <div id="search-form-wrap">
+        <form action="//google.com/search" method="get" accept-charset="UTF-8" class="search-form"><input type="search" name="q" class="search-form-input" placeholder="Suche"><button type="submit" class="search-form-submit">&#xF002;</button><input type="hidden" name="sitesearch" value="https://kujourinka.github.io"></form>
+      </div>
+    </div>
+  </div>
+</header>
+
+      <div class="outer">
+        <section id="main"><article id="post-6824_lab2a_leader_election" class="h-entry article article-type-post" itemprop="blogPost" itemscope itemtype="https://schema.org/BlogPosting">
+  <div class="article-meta">
+    <a href="/2023/02/08/6824_lab2a_leader_election/" class="article-date">
+  <time class="dt-published" datetime="2023-02-08T12:00:00.000Z" itemprop="datePublished">2023-02-08</time>
+</a>
+    
+  </div>
+  <div class="article-inner">
+    
+    
+      <header class="article-header">
+        
+  
+    <h1 class="p-name article-title" itemprop="headline name">
+      6.824 Lab2A Leader Election 可行方案
+    </h1>
+  
+
+      </header>
+    
+    <div class="e-content article-entry" itemprop="articleBody">
+      
+        <h4 id="一些碎碎念"><a href="#一些碎碎念" class="headerlink" title="一些碎碎念"></a>一些碎碎念</h4><p>书接上回，这是 6.824 的 <a target="_blank" rel="noopener" href="https://pdos.csail.mit.edu/6.824/labs/lab-raft.html">lab2A</a>，实现 raft 协议中的 leader election。关于 raft 的更多详细内容，<a target="_blank" rel="noopener" href="https://pdos.csail.mit.edu/6.824/papers/raft-extended.pdf">raft paper</a> 和网络上大多数文章一定会比我在这里介绍得详细，这里只给出一个链接，以动图的方式助于理解 raft 的工作原理：<a target="_blank" rel="noopener" href="http://thesecretlivesofdata.com/raft/">Raft</a>，<a target="_blank" rel="noopener" href="https://raft.github.io/">https://raft.github.io/</a> 也提供了一个可交互的动画，大家可以去玩一玩。</p>
+<p>个人的这个实现相较于网上的各种版本，代码量较大，但个人感觉逻辑更加清晰。</p>
+<p>不保证 bug free，但使用课程中的 test 测试了近 1000 轮无一失败。</p>
+<h4 id="思路"><a href="#思路" class="headerlink" title="思路"></a>思路</h4><p>实现 raft 协议中的 leader election。由 paper 中可知集群中的所有节点会选出一个 leader 节点，选出 leader 后其余节点均为 follower。对集群的各种操作都需要经过 leader 之手，具体表现为 client 直接向 leader 进行请求，或向 follower 请求，随后该 follower 将请求重定向到 leader。</p>
+<p>对于单个节点，有三种可能的状态：</p>
+<ul>
+<li>follower</li>
+<li>candidate</li>
+<li>leader</li>
+</ul>
+<p>对于每个节点，有以下几种事件会导致状态间的转移：</p>
+<ul>
+<li>超时事件</li>
+<li><strong>接收</strong>到来自 RequestVote RPC 的请求</li>
+<li><strong>接收</strong>到来自 AppendEntries RPC 的请求</li>
+</ul>
+<p>同时由于处于 candidate 和 leader 状态下的节点分别会<strong>发出</strong> RequestVote 和 AppendEntries 请求，还应该在上面三个事件中加入：</p>
+<ul>
+<li>来自 RequestVote RPC 请求的回应</li>
+<li>来自 AppendEntries RPC 请求的回应</li>
+</ul>
+<p>于是，整个 leader election 变成了一个填表游戏：</p>
+<table>
+<thead>
+<tr>
+<th align="center">事件\行为\状态</th>
+<th align="center">follower</th>
+<th align="center">candidate</th>
+<th align="center">leader</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="center">timeout</td>
+<td align="center">a</td>
+<td align="center">d</td>
+<td align="center">h</td>
+</tr>
+<tr>
+<td align="center">RequestVote recv</td>
+<td align="center">b</td>
+<td align="center">e</td>
+<td align="center">i</td>
+</tr>
+<tr>
+<td align="center">AppendEntries recv</td>
+<td align="center">c</td>
+<td align="center">f</td>
+<td align="center">j</td>
+</tr>
+<tr>
+<td align="center">RequestVote callback</td>
+<td align="center">&#x2F;</td>
+<td align="center">g</td>
+<td align="center">&#x2F;</td>
+</tr>
+<tr>
+<td align="center">AppendEntries callback</td>
+<td align="center">&#x2F;</td>
+<td align="center">&#x2F;</td>
+<td align="center">k</td>
+</tr>
+</tbody></table>
+<p>当表填完，整个流程就基本完成了。</p>
+<h4 id="实现"><a href="#实现" class="headerlink" title="实现"></a>实现</h4><h5 id="杂项"><a href="#杂项" class="headerlink" title="杂项"></a>杂项</h5><h5 id="rpc-go"><a href="#rpc-go" class="headerlink" title="rpc.go"></a>rpc.go</h5><p>依照 paper 对 <code>rpc.go</code> 进行了一些修改：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// ---------- for RequestVote ----------</span></span><br><span class="line"><span class="keyword">type</span> RequestVoteArgs <span class="keyword">struct</span> &#123;</span><br><span class="line">	<span class="comment">// Your data here (2A, 2B).</span></span><br><span class="line">	Term        <span class="type">int</span> <span class="comment">// candidate&#x27;s curTerm</span></span><br><span class="line">	CandidateId <span class="type">int</span> <span class="comment">// candidate requesting vote</span></span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="keyword">type</span> RequestVoteReply <span class="keyword">struct</span> &#123;</span><br><span class="line">	<span class="comment">// Your data here (2A).</span></span><br><span class="line">	Term        <span class="type">int</span>  <span class="comment">// currentTerm, for candidate to update itself</span></span><br><span class="line">	VoteGranted <span class="type">bool</span> <span class="comment">// true means candidate received vote</span></span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="keyword">type</span> voteParam <span class="keyword">struct</span> &#123;</span><br><span class="line">	args   *RequestVoteArgs</span><br><span class="line">	reply  *RequestVoteReply</span><br><span class="line">	notify <span class="keyword">chan</span> <span class="keyword">struct</span>&#123;&#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="params">(rf *Raft)</span></span> RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) &#123;</span><br><span class="line">	<span class="comment">// Your code here (2A, 2B).</span></span><br><span class="line">	notify := <span class="built_in">make</span>(<span class="keyword">chan</span> <span class="keyword">struct</span>&#123;&#125;)</span><br><span class="line">	rf.voteChan &lt;- voteParam&#123;args, reply, notify&#125;</span><br><span class="line">	&lt;-notify</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="params">(rf *Raft)</span></span> sendRequestVote(server <span class="type">int</span>, args *RequestVoteArgs, reply *RequestVoteReply) <span class="type">bool</span> &#123;</span><br><span class="line">	ok := rf.peers[server].Call(<span class="string">&quot;Raft.RequestVote&quot;</span>, args, reply)</span><br><span class="line">	<span class="keyword">return</span> ok</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="comment">// ---------- for AppendEntries ----------</span></span><br><span class="line"><span class="keyword">type</span> AppendEntriesArgs <span class="keyword">struct</span> &#123;</span><br><span class="line">	Term     <span class="type">int</span> <span class="comment">// leader&#x27;s curTerm</span></span><br><span class="line">	LeaderId <span class="type">int</span> <span class="comment">// so follower can redirect clients</span></span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="keyword">type</span> AppendEntriesReply <span class="keyword">struct</span> &#123;</span><br><span class="line">	Term    <span class="type">int</span>  <span class="comment">// currentTerm, for leader to update itself</span></span><br><span class="line">	Success <span class="type">bool</span> <span class="comment">// true if follower contained entry matching prevLogIndex and prevLogTerm</span></span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="keyword">type</span> appendEntryParam <span class="keyword">struct</span> &#123;</span><br><span class="line">	args   *AppendEntriesArgs</span><br><span class="line">	reply  *AppendEntriesReply</span><br><span class="line">	notify <span class="keyword">chan</span> <span class="keyword">struct</span>&#123;&#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="params">(rf *Raft)</span></span> AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) &#123;</span><br><span class="line">	notify := <span class="built_in">make</span>(<span class="keyword">chan</span> <span class="keyword">struct</span>&#123;&#125;)</span><br><span class="line">	rf.entryChan &lt;- appendEntryParam&#123;args, reply, notify&#125;</span><br><span class="line">	&lt;-notify</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="params">(rf *Raft)</span></span> sendAppendEntries(server <span class="type">int</span>, args *AppendEntriesArgs, reply *AppendEntriesReply) <span class="type">bool</span> &#123;</span><br><span class="line">	ok := rf.peers[server].Call(<span class="string">&quot;Raft.AppendEntries&quot;</span>, args, reply)</span><br><span class="line">	<span class="keyword">return</span> ok</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>我并没有将处理的逻辑直接写到 RPC 处理函数中，而是将其封装到一个结构中，发送到一个专门用于接受这个参数的 channel 中，并传入一个空 channel 作同步作用。</p>
+<h5 id="raft-go"><a href="#raft-go" class="headerlink" title="raft.go"></a>raft.go</h5><p>在 <code>type Raft struct</code> 中增加了一些 paper 中提到的本实现需要用到的字段，包括上面提到的接受 RPC 参数的 channel：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"></span><br><span class="line"><span class="comment">// Your data here (2A, 2B, 2C).</span></span><br><span class="line"><span class="comment">// Look at the paper&#x27;s Figure 2 for a description of what</span></span><br><span class="line"><span class="comment">// state a Raft server must maintain.</span></span><br><span class="line">curTerm  <span class="type">int</span>    <span class="comment">// current curTerm</span></span><br><span class="line">state    RState <span class="comment">// current state</span></span><br><span class="line">votedFor <span class="type">int</span>    <span class="comment">// candidate id that received vote in current curTerm</span></span><br><span class="line"></span><br><span class="line">voteChan  <span class="keyword">chan</span> voteParam        <span class="comment">// channel for vote request</span></span><br><span class="line">entryChan <span class="keyword">chan</span> appendEntryParam <span class="comment">// channel for entry request</span></span><br></pre></td></tr></table></figure>
+
+<p>有关 <code>RState interface</code> 和具体的实现，定义如下：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">type</span> RState <span class="keyword">interface</span> &#123;</span><br><span class="line">	Run(tf *Raft)</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="keyword">type</span> Follower <span class="keyword">struct</span>&#123;&#125;</span><br><span class="line"><span class="keyword">type</span> Candidate <span class="keyword">struct</span>&#123;&#125;</span><br><span class="line"><span class="keyword">type</span> Leader <span class="keyword">struct</span>&#123;&#125;</span><br></pre></td></tr></table></figure>
+
+<p>这里的设计参考了<a target="_blank" rel="noopener" href="https://book.douban.com/subject/34262305/">设计模式：可复用面向对象软件的基础</a>一书中的 State 模式，于是，便有了 <code>GetState</code> 函数的如下写法：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">func</span> <span class="params">(rf *Raft)</span></span> GetState() (<span class="type">int</span>, <span class="type">bool</span>) &#123;</span><br><span class="line">	rf.mu.Lock()</span><br><span class="line">	<span class="keyword">defer</span> rf.mu.Unlock()</span><br><span class="line">	<span class="keyword">return</span> rf.curTerm, reflect.TypeOf(rf.state) == reflect.TypeOf(&amp;Leader&#123;&#125;)</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><code>ticker</code> 函数也变得格外简单：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">func</span> <span class="params">(rf *Raft)</span></span> ticker() &#123;</span><br><span class="line">	<span class="keyword">for</span> !rf.killed() &#123;</span><br><span class="line">		rf.state.Run(rf)</span><br><span class="line">	&#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><code>Make</code> 函数只需要初始化我们添加的几个字段即可：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">Make</span><span class="params">(peers []*labrpc.ClientEnd, me <span class="type">int</span>,</span></span></span><br><span class="line"><span class="params"><span class="function">	persister *Persister, applyCh <span class="keyword">chan</span> ApplyMsg)</span></span> *Raft &#123;</span><br><span class="line">	rf := &amp;Raft&#123;&#125;</span><br><span class="line">	rf.peers = peers</span><br><span class="line">	rf.persister = persister</span><br><span class="line">	rf.me = me</span><br><span class="line"></span><br><span class="line">	rf.curTerm = <span class="number">0</span></span><br><span class="line">	rf.state = &amp;Follower&#123;&#125;</span><br><span class="line">	rf.votedFor = <span class="number">-1</span></span><br><span class="line"></span><br><span class="line">	rf.voteChan = <span class="built_in">make</span>(<span class="keyword">chan</span> voteParam)</span><br><span class="line">	rf.entryChan = <span class="built_in">make</span>(<span class="keyword">chan</span> appendEntryParam)</span><br><span class="line">	rf.readPersist(persister.ReadRaftState())</span><br><span class="line"></span><br><span class="line">	<span class="comment">// start ticker goroutine to start elections</span></span><br><span class="line">	<span class="keyword">go</span> rf.ticker()</span><br><span class="line"></span><br><span class="line">	<span class="keyword">return</span> rf</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<h5 id="common-go"><a href="#common-go" class="headerlink" title="common.go"></a>common.go</h5><p>定义一些常用函数：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">const</span> (</span><br><span class="line">	ReElectLower = <span class="number">150</span></span><br><span class="line">	ReElectUpper = <span class="number">300</span></span><br><span class="line"></span><br><span class="line">	HeartBeatTimeout = <span class="number">100</span></span><br><span class="line">)</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">randBetween</span><span class="params">(lower, upper <span class="type">int</span>)</span></span> <span class="type">int</span> &#123;</span><br><span class="line">	<span class="keyword">return</span> rand.Intn(upper-lower) + lower</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">electionTimeout</span><span class="params">()</span></span> time.Duration &#123;</span><br><span class="line">	<span class="keyword">return</span> time.Duration(randBetween(ReElectLower, ReElectUpper)) * time.Millisecond</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">heartbeatTimeout</span><span class="params">()</span></span> time.Duration &#123;</span><br><span class="line">	<span class="keyword">return</span> time.Duration(HeartBeatTimeout) * time.Millisecond</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">resetTimer</span><span class="params">(timer *time.Timer, timeout time.Duration)</span></span> &#123;</span><br><span class="line">	<span class="keyword">if</span> !timer.Stop() &#123;</span><br><span class="line">		&lt;-timer.C</span><br><span class="line">	&#125;</span><br><span class="line">	timer.Reset(timeout)</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<h4 id="重头戏"><a href="#重头戏" class="headerlink" title="重头戏"></a>重头戏</h4><p>下面正片开始，我将不同状态的逻辑分开写，虽然代码看上去挺长的，但是我感觉逻辑挺清晰的</p>
+<h5 id="follower-go"><a href="#follower-go" class="headerlink" title="follower.go"></a>follower.go</h5><p>follower 是最简单的一个实现对照我上面画的一个表，只需要处理三个事件，大致框架如下：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">func</span> <span class="params">(f *Follower)</span></span> Run(rf *Raft) &#123;</span><br><span class="line">	timer := time.NewTimer(electionTimeout())</span><br><span class="line">	<span class="keyword">for</span> &#123;</span><br><span class="line">		<span class="keyword">select</span> &#123;</span><br><span class="line">		<span class="keyword">case</span> &lt;-timer.C:</span><br><span class="line">		<span class="comment">// a 处理超时</span></span><br><span class="line">		<span class="keyword">case</span> vote := &lt;-rf.voteChan:</span><br><span class="line">		<span class="comment">// b 处理 RequestVote 请求</span></span><br><span class="line">		<span class="keyword">case</span> entry := &lt;-rf.entryChan:</span><br><span class="line">		<span class="comment">// c 处理 AppendEntries 请求</span></span><br><span class="line">	&#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>当 follower 超时，自动变为 candidate，并为自己投票，因此，a 处填写：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">rf.mu.Lock()</span><br><span class="line">rf.state = &amp;Candidate&#123;&#125;</span><br><span class="line">rf.votedFor = rf.me</span><br><span class="line">rf.mu.Unlock()</span><br><span class="line"><span class="keyword">return</span></span><br></pre></td></tr></table></figure>
+
+<p>当 candidate 收到 RequestVote RPC 的请求，首先检查 <code>Term</code>，若小于 <code>curTerm</code> 则拒绝为其投票；若满足 <code>Term &gt; curTerm</code> 或者 <code>Term == curTerm &amp;&amp; vote.args.CandidateId</code>，同意为其投票，并重置超时计时器。b 处填写：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br></pre></td><td class="code"><pre><span class="line">vote.reply.Term = vote.args.Term</span><br><span class="line">vote.reply.VoteGranted = <span class="literal">false</span></span><br><span class="line"></span><br><span class="line">vote.args.CandidateId)</span><br><span class="line">rf.mu.Lock()</span><br><span class="line"><span class="keyword">if</span> vote.args.Term &lt; rf.curTerm &#123;</span><br><span class="line">	rf.mu.Unlock()</span><br><span class="line">	vote.notify &lt;- <span class="keyword">struct</span>&#123;&#125;&#123;&#125;</span><br><span class="line">	<span class="keyword">continue</span></span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="comment">// grant vote, update curTerm</span></span><br><span class="line"><span class="keyword">if</span> vote.args.Term &gt; rf.curTerm ||</span><br><span class="line">	(vote.args.Term == rf.curTerm &amp;&amp; rf.votedFor == vote.args.CandidateId) &#123;</span><br><span class="line">	rf.curTerm = vote.args.Term</span><br><span class="line">	rf.votedFor = vote.args.CandidateId</span><br><span class="line">	vote.reply.Term = rf.curTerm</span><br><span class="line">	vote.reply.VoteGranted = <span class="literal">true</span></span><br><span class="line">	<span class="comment">// reset timer</span></span><br><span class="line">	resetTimer(timer, electionTimeout())</span><br><span class="line">&#125;</span><br><span class="line">rf.mu.Unlock()</span><br><span class="line">vote.notify &lt;- <span class="keyword">struct</span>&#123;&#125;&#123;&#125;</span><br></pre></td></tr></table></figure>
+
+<p>这里提一嘴，<code>time.Timer</code> 和 <code>time.Ticker</code> 真的很容易用错，这里建议参考 golang 关于这两者的<a target="_blank" rel="noopener" href="https://pkg.go.dev/time">文档</a>。</p>
+<p>当收到 AppendEntries RPC，同样依照 paper 中所说的检查任期等等逻辑如法炮制，c 处填写：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br></pre></td><td class="code"><pre><span class="line">entry.args.LeaderId)</span><br><span class="line">rf.mu.Lock()</span><br><span class="line"><span class="keyword">if</span> entry.args.Term &lt; rf.curTerm &#123;</span><br><span class="line">	<span class="comment">// stale curTerm, do nothing</span></span><br><span class="line">	entry.reply.Term = rf.curTerm</span><br><span class="line">	entry.reply.Success = <span class="literal">false</span></span><br><span class="line">&#125; <span class="keyword">else</span> <span class="keyword">if</span> entry.args.Term &gt; rf.curTerm &#123;</span><br><span class="line">	<span class="comment">// larger curTerm, may this server is out of date</span></span><br><span class="line">	rf.curTerm = entry.args.Term</span><br><span class="line">	rf.votedFor = entry.args.LeaderId</span><br><span class="line">	entry.reply.Term = rf.curTerm</span><br><span class="line">	entry.reply.Success = <span class="literal">true</span></span><br><span class="line">	resetTimer(timer, electionTimeout())</span><br><span class="line">&#125; <span class="keyword">else</span> &#123;</span><br><span class="line">	<span class="comment">// same curTerm, reset timer</span></span><br><span class="line">	entry.reply.Term = rf.curTerm</span><br><span class="line">	entry.reply.Success = <span class="literal">true</span></span><br><span class="line">	resetTimer(timer, electionTimeout())</span><br><span class="line">&#125;</span><br><span class="line">rf.mu.Unlock()</span><br><span class="line">entry.notify &lt;- <span class="keyword">struct</span>&#123;&#125;&#123;&#125;</span><br></pre></td></tr></table></figure>
+
+<h5 id="candidate-go"><a href="#candidate-go" class="headerlink" title="candidate.go"></a>candidate.go</h5><p>先给出框架：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">func</span> <span class="params">(c *Candidate)</span></span> Run(rf *Raft) &#123;</span><br><span class="line">	rf.mu.Lock()</span><br><span class="line">	rf.curTerm++</span><br><span class="line"></span><br><span class="line">    <span class="comment">// <span class="doctag">TODO:</span> send RequestVote RPC</span></span><br><span class="line">	rf.mu.Unlock()</span><br><span class="line"></span><br><span class="line">	timer := time.NewTimer(electionTimeout())</span><br><span class="line">	<span class="keyword">for</span> &#123;</span><br><span class="line">		<span class="keyword">select</span> &#123;</span><br><span class="line">		<span class="keyword">case</span> &lt;-timer.C:</span><br><span class="line">		<span class="comment">// d 超时</span></span><br><span class="line">		<span class="keyword">case</span> reply := &lt;-replyChan:</span><br><span class="line">		<span class="comment">// g RequestVote 回答</span></span><br><span class="line">		<span class="keyword">case</span> vote := &lt;-rf.voteChan:</span><br><span class="line">		<span class="comment">// e RequestVote 请求</span></span><br><span class="line">		<span class="keyword">case</span> entry := &lt;-rf.entryChan:</span><br><span class="line">		<span class="comment">// f AppendEntries 请求</span></span><br><span class="line">		&#125;</span><br><span class="line">	&#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>首先自增 curTerm，发送 RequestVote 请求其他节点的选票，随后开启循环等待事件驱动，其中 d，e，f 遵随 paper 所描述即可，只需要注意加锁释放锁的时机，这里简单贴一下代码：</p>
+<p>d：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">return</span></span><br></pre></td></tr></table></figure>
+
+<p>e：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line">rf.mu.Lock()</span><br><span class="line"><span class="keyword">if</span> vote.args.Term &gt; rf.curTerm &#123;</span><br><span class="line">	rf.curTerm = vote.args.Term</span><br><span class="line">	rf.votedFor = vote.args.CandidateId</span><br><span class="line">	rf.state = &amp;Follower&#123;&#125;</span><br><span class="line">	rf.mu.Unlock()</span><br><span class="line">	vote.reply.VoteGranted = <span class="literal">true</span></span><br><span class="line">	vote.reply.Term = vote.args.Term</span><br><span class="line">	vote.notify &lt;- <span class="keyword">struct</span>&#123;&#125;&#123;&#125;</span><br><span class="line">	<span class="keyword">return</span></span><br><span class="line">&#125; <span class="keyword">else</span> <span class="keyword">if</span> vote.args.Term &lt; rf.curTerm &#123;</span><br><span class="line">	vote.reply.VoteGranted = <span class="literal">false</span></span><br><span class="line">	vote.reply.Term = rf.curTerm</span><br><span class="line">&#125; <span class="keyword">else</span> &#123;</span><br><span class="line">	vote.reply.VoteGranted = <span class="literal">false</span></span><br><span class="line">	vote.reply.Term = rf.curTerm</span><br><span class="line">&#125;</span><br><span class="line">rf.mu.Unlock()</span><br><span class="line">vote.notify &lt;- <span class="keyword">struct</span>&#123;&#125;&#123;&#125;</span><br></pre></td></tr></table></figure>
+
+<p>f：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line">rf.mu.Lock()</span><br><span class="line"><span class="comment">// a leader send AppendEntries, if args.term &gt;= curTerm</span></span><br><span class="line"><span class="comment">// acknowledge the leader and become follower</span></span><br><span class="line"><span class="comment">// or reject the request then stay as candidate</span></span><br><span class="line"><span class="keyword">if</span> entry.args.Term &gt;= rf.curTerm &#123;</span><br><span class="line">	rf.curTerm = entry.args.Term</span><br><span class="line">	rf.votedFor = entry.args.LeaderId</span><br><span class="line">	rf.state = &amp;Follower&#123;&#125;</span><br><span class="line">	rf.mu.Unlock()</span><br><span class="line">	entry.reply.Term = entry.args.Term</span><br><span class="line">	entry.reply.Success = <span class="literal">true</span></span><br><span class="line">	entry.notify &lt;- <span class="keyword">struct</span>&#123;&#125;&#123;&#125;</span><br><span class="line">	<span class="keyword">return</span></span><br><span class="line">&#125; <span class="keyword">else</span> &#123;</span><br><span class="line">	entry.reply.Term = rf.curTerm</span><br><span class="line">	entry.reply.Success = <span class="literal">false</span></span><br><span class="line">&#125;</span><br><span class="line">rf.mu.Unlock()</span><br><span class="line">entry.notify &lt;- <span class="keyword">struct</span>&#123;&#125;&#123;&#125;</span><br></pre></td></tr></table></figure>
+
+<p>而 candidate 相较于 follower 多出来的逻辑部分就全部在下面了，我们需要在进入循环前以类似异步的方式发送 RequestVote 请求，并在循环中通过添加了一个 replyChan 进行处理 RequestVote 请求的回答。这样将请求和事件分开，逻辑没有那么混乱。于是，发送请求的代码为：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// send RequestVote RPC</span></span><br><span class="line">replyChan := <span class="built_in">make</span>(<span class="keyword">chan</span> RequestVoteReply, <span class="built_in">len</span>(rf.peers)<span class="number">-1</span>)</span><br><span class="line">args := RequestVoteArgs&#123;</span><br><span class="line">	Term:        rf.curTerm,</span><br><span class="line">	CandidateId: rf.me,</span><br><span class="line">&#125;</span><br><span class="line"><span class="keyword">for</span> i := <span class="keyword">range</span> rf.peers &#123;</span><br><span class="line">	<span class="keyword">if</span> i == rf.me &#123;</span><br><span class="line">		<span class="keyword">continue</span></span><br><span class="line">	&#125;</span><br><span class="line">	<span class="keyword">go</span> <span class="function"><span class="keyword">func</span><span class="params">(pees *labrpc.ClientEnd)</span></span> &#123;</span><br><span class="line">		<span class="keyword">var</span> reply RequestVoteReply</span><br><span class="line">		<span class="keyword">if</span> pees.Call(<span class="string">&quot;Raft.RequestVote&quot;</span>, &amp;args, &amp;reply) &#123;</span><br><span class="line">			replyChan &lt;- reply</span><br><span class="line">		&#125;</span><br><span class="line">	&#125;(rf.peers[i])</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">grantedCnt := <span class="number">1</span></span><br><span class="line">minVote := <span class="built_in">len</span>(rf.peers)/<span class="number">2</span> + <span class="number">1</span></span><br></pre></td></tr></table></figure>
+
+<p>而对应的事件处理，当收到的选票大于集群数量的一半时，转换为 leader，但同时仍要处理任期 <code>Term</code>，g：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line">rf.mu.Lock()</span><br><span class="line"><span class="keyword">if</span> reply.Term &gt; rf.curTerm &#123;</span><br><span class="line">	<span class="comment">// received larger term, become follower</span></span><br><span class="line">	rf.curTerm = reply.Term</span><br><span class="line">	rf.votedFor = <span class="number">-1</span></span><br><span class="line">	rf.state = &amp;Follower&#123;&#125;</span><br><span class="line">	rf.mu.Unlock()</span><br><span class="line">	<span class="keyword">return</span></span><br><span class="line">&#125; <span class="keyword">else</span> <span class="keyword">if</span> reply.Term == rf.curTerm &amp;&amp; reply.VoteGranted &#123;</span><br><span class="line">	<span class="comment">// received a grantVote</span></span><br><span class="line">	grantedCnt++</span><br><span class="line">	<span class="keyword">if</span> grantedCnt &gt;= minVote &#123;</span><br><span class="line">		rf.state = &amp;Leader&#123;&#125;</span><br><span class="line">		rf.mu.Unlock()</span><br><span class="line">		<span class="keyword">return</span></span><br><span class="line">	&#125;</span><br><span class="line">&#125;</span><br><span class="line">rf.mu.Unlock()</span><br></pre></td></tr></table></figure>
+
+<h5 id="leader-go"><a href="#leader-go" class="headerlink" title="leader.go"></a>leader.go</h5><p>框架：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">func</span> <span class="params">(l *Leader)</span></span> Run(rf *Raft) &#123;</span><br><span class="line">    <span class="comment">// <span class="doctag">TODO:</span> send heartbeat</span></span><br><span class="line">    <span class="comment">// <span class="doctag">TODO:</span> send AppendEntries RPCs to all other servers</span></span><br><span class="line"></span><br><span class="line">	<span class="comment">// make heartbeat timer</span></span><br><span class="line">	timer := time.NewTimer(heartbeatTimeout())</span><br><span class="line">	<span class="keyword">for</span> &#123;</span><br><span class="line">		<span class="keyword">select</span> &#123;</span><br><span class="line">		<span class="keyword">case</span> &lt;-timer.C:</span><br><span class="line">		<span class="comment">// h 超时</span></span><br><span class="line">		<span class="keyword">case</span> reply := &lt;-replyChan:</span><br><span class="line">		<span class="comment">// k AppendEntries 回答</span></span><br><span class="line">		<span class="keyword">case</span> vote := &lt;-rf.voteChan:</span><br><span class="line">		<span class="comment">// i RequestVote 请求</span></span><br><span class="line">		<span class="keyword">case</span> entry := &lt;-rf.entryChan:</span><br><span class="line">		<span class="comment">// j AppendEntries 请求</span></span><br><span class="line">		&#125;</span><br><span class="line">	&#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>h: 超时：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">return</span></span><br></pre></td></tr></table></figure>
+
+<p>i：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line">rf.mu.Lock()</span><br><span class="line"><span class="keyword">if</span> vote.args.Term &gt; rf.curTerm &#123;</span><br><span class="line">	rf.curTerm = vote.args.Term</span><br><span class="line">	rf.votedFor = vote.args.CandidateId</span><br><span class="line">	rf.state = &amp;Follower&#123;&#125;</span><br><span class="line">	vote.reply.VoteGranted = <span class="literal">true</span></span><br><span class="line">	vote.reply.Term = rf.curTerm</span><br><span class="line">	rf.mu.Unlock()</span><br><span class="line">	vote.notify &lt;- <span class="keyword">struct</span>&#123;&#125;&#123;&#125;</span><br><span class="line">	<span class="keyword">return</span></span><br><span class="line">&#125; <span class="keyword">else</span> <span class="keyword">if</span> vote.args.Term &lt;= rf.curTerm &#123;</span><br><span class="line">	vote.reply.VoteGranted = <span class="literal">false</span></span><br><span class="line">	vote.reply.Term = rf.curTerm</span><br><span class="line">&#125;</span><br><span class="line">rf.mu.Unlock()</span><br><span class="line">vote.notify &lt;- <span class="keyword">struct</span>&#123;&#125;&#123;&#125;</span><br></pre></td></tr></table></figure>
+
+<p>j：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line">rf.mu.Lock()</span><br><span class="line"><span class="keyword">if</span> entry.args.Term &gt; rf.curTerm &#123;</span><br><span class="line">	rf.curTerm = entry.args.Term</span><br><span class="line">	rf.votedFor = entry.args.LeaderId</span><br><span class="line">	rf.state = &amp;Follower&#123;&#125;</span><br><span class="line">	entry.reply.Success = <span class="literal">true</span></span><br><span class="line">	entry.reply.Term = rf.curTerm</span><br><span class="line">	rf.mu.Unlock()</span><br><span class="line">	entry.notify &lt;- <span class="keyword">struct</span>&#123;&#125;&#123;&#125;</span><br><span class="line">	<span class="keyword">return</span></span><br><span class="line">&#125; <span class="keyword">else</span> <span class="keyword">if</span> entry.args.Term &lt;= rf.curTerm &#123;</span><br><span class="line">	entry.reply.Success = <span class="literal">false</span></span><br><span class="line">	entry.reply.Term = rf.curTerm</span><br><span class="line">&#125;</span><br><span class="line">rf.mu.Unlock()</span><br><span class="line">entry.notify &lt;- <span class="keyword">struct</span>&#123;&#125;&#123;&#125;</span><br></pre></td></tr></table></figure>
+
+<p>模仿 RequestVote 的发送方式，发送 AppendEntries 请求，这个实验中只需要发送 heartbeat，实现起来并不困难：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// send heartbeat</span></span><br><span class="line">rf.mu.Lock()</span><br><span class="line">replyChan := <span class="built_in">make</span>(<span class="keyword">chan</span> AppendEntriesReply, <span class="built_in">len</span>(rf.peers))</span><br><span class="line">args := AppendEntriesArgs&#123;</span><br><span class="line">	Term:     rf.curTerm,</span><br><span class="line">	LeaderId: rf.me,</span><br><span class="line">&#125;</span><br><span class="line"><span class="comment">// send AppendEntries RPCs to all other servers</span></span><br><span class="line"><span class="keyword">for</span> i := <span class="keyword">range</span> rf.peers &#123;</span><br><span class="line">	<span class="keyword">if</span> i == rf.me &#123;</span><br><span class="line">		<span class="keyword">continue</span></span><br><span class="line">	&#125;</span><br><span class="line">	<span class="keyword">go</span> <span class="function"><span class="keyword">func</span><span class="params">(peer *labrpc.ClientEnd)</span></span> &#123;</span><br><span class="line">		<span class="keyword">var</span> reply AppendEntriesReply</span><br><span class="line">		<span class="keyword">if</span> peer.Call(<span class="string">&quot;Raft.AppendEntries&quot;</span>, &amp;args, &amp;reply) &#123;</span><br><span class="line">			replyChan &lt;- reply</span><br><span class="line">		&#125;</span><br><span class="line">	&#125;(rf.peers[i])</span><br><span class="line">&#125;</span><br><span class="line">rf.mu.Unlock()</span><br></pre></td></tr></table></figure>
+
+<p>k：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line">rf.mu.Lock()</span><br><span class="line"><span class="keyword">if</span> vote.args.Term &gt; rf.curTerm &#123;</span><br><span class="line">	rf.curTerm = vote.args.Term</span><br><span class="line">	rf.votedFor = vote.args.CandidateId</span><br><span class="line">	rf.state = &amp;Follower&#123;&#125;</span><br><span class="line">	vote.reply.VoteGranted = <span class="literal">true</span></span><br><span class="line">	vote.reply.Term = rf.curTerm</span><br><span class="line">	rf.mu.Unlock()</span><br><span class="line">	vote.notify &lt;- <span class="keyword">struct</span>&#123;&#125;&#123;&#125;</span><br><span class="line">	<span class="keyword">return</span></span><br><span class="line">&#125; <span class="keyword">else</span> <span class="keyword">if</span> vote.args.Term &lt;= rf.curTerm &#123;</span><br><span class="line">	vote.reply.VoteGranted = <span class="literal">false</span></span><br><span class="line">	vote.reply.Term = rf.curTerm</span><br><span class="line">&#125;</span><br><span class="line">rf.mu.Unlock()</span><br><span class="line">vote.notify &lt;- <span class="keyword">struct</span>&#123;&#125;&#123;&#125;</span><br></pre></td></tr></table></figure>
+
+<h4 id="最后"><a href="#最后" class="headerlink" title="最后"></a>最后</h4><p>整个实验做下来的感觉：难，但是豁然开朗。明白了很多东西，很多细节需要处理，以及如何把握整个框架。写这么复杂的状态框架的原因是为了后续实验的更好拓展。</p>
+
+      
+    </div>
+    <footer class="article-footer">
+      <a data-url="https://kujourinka.github.io/2023/02/08/6824_lab2a_leader_election/" data-id="cll2gun8n0001d8p0hzet6zcz" data-title="6.824 Lab2A Leader Election 可行方案" class="article-share-link">Teilen</a>
+      
+      
+      
+    </footer>
+  </div>
+  
+    
+<nav id="article-nav">
+  
+    <a href="/2023/03/21/nic_driver_kara_syscall_he/" id="article-nav-newer" class="article-nav-link-wrap">
+      <strong class="article-nav-caption">Neuer</strong>
+      <div class="article-nav-title">
+        
+          从网卡驱动到系统调用
+        
+      </div>
+    </a>
+  
+  
+    <a href="/2022/12/23/6824_lab1_MapReduce/" id="article-nav-older" class="article-nav-link-wrap">
+      <strong class="article-nav-caption">Älter</strong>
+      <div class="article-nav-title">6.824 Lab1 MapReduce 快速实现</div>
+    </a>
+  
+</nav>
+
+  
+</article>
+
+
+</section>
+        
+          <aside id="sidebar">
+  
+    
+
+  
+    
+
+  
+    
+  
+    
+  <div class="widget-wrap">
+    <h3 class="widget-title">Archiv</h3>
+    <div class="widget">
+      <ul class="archive-list"><li class="archive-list-item"><a class="archive-list-link" href="/archives/2023/08/">August 2023</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2023/04/">April 2023</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2023/03/">March 2023</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2023/02/">February 2023</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2022/12/">December 2022</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2022/06/">June 2022</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2022/03/">March 2022</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2022/02/">February 2022</a></li></ul>
+    </div>
+  </div>
+
+
+  
+    
+  <div class="widget-wrap">
+    <h3 class="widget-title">letzter Beitrag</h3>
+    <div class="widget">
+      <ul>
+        
+          <li>
+            <a href="/2023/08/08/re0_ss1/">从零写一个 shadowsocks（1）</a>
+          </li>
+        
+          <li>
+            <a href="/2023/04/20/simple_impl_for_lazy/">简记一次 rCore 中 sys_sbrk() 与 lazy allocation 的实现</a>
+          </li>
+        
+          <li>
+            <a href="/2023/03/21/nic_driver_kara_syscall_he/">从网卡驱动到系统调用</a>
+          </li>
+        
+          <li>
+            <a href="/2023/02/08/6824_lab2a_leader_election/">6.824 Lab2A Leader Election 可行方案</a>
+          </li>
+        
+          <li>
+            <a href="/2022/12/23/6824_lab1_MapReduce/">6.824 Lab1 MapReduce 快速实现</a>
+          </li>
+        
+      </ul>
+    </div>
+  </div>
+
+  
+</aside>
+        
+      </div>
+      <footer id="footer">
+  
+  <div class="outer">
+    <div id="footer-info" class="inner">
+      
+      &copy; 2023 Kujou Rinka<br>
+      Powered by <a href="https://hexo.io/" target="_blank">Hexo</a>
+    </div>
+  </div>
+</footer>
+
+    </div>
+    <nav id="mobile-nav">
+  
+    <a href="/" class="mobile-nav-link">Home</a>
+  
+    <a href="/archives" class="mobile-nav-link">Archives</a>
+  
+</nav>
+    
+
+
+<script src="/js/jquery-3.4.1.min.js"></script>
+
+
+
+  
+<script src="/fancybox/jquery.fancybox.min.js"></script>
+
+
+
+
+<script src="/js/script.js"></script>
+
+
+
+
+
+  </div>
+</body>
+</html>

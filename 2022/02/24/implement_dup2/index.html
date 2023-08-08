@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  
+  
+  <title>实现 dup2() 函数 | Hexo</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+  <meta name="description" content="来自 APUE 上的第 3.3 题，原文如下：  编写一个与 3.12 节中 dup2 功能相同的函数，要求不调用 fcntl 函数，并且要有正确的出错处理。  函数原型是 int dup2(int fd, int fd2) ，作用是复制文件描述符 fd  ，使 fd2 为新的描述符的值，即 fd 与 fd2 共享同一个文件表项。若 fd2 已经打开，则先将其关闭。 很有意思的一个题。由于要求不调">
+<meta property="og:type" content="article">
+<meta property="og:title" content="实现 dup2() 函数">
+<meta property="og:url" content="https://kujourinka.github.io/2022/02/24/implement_dup2/index.html">
+<meta property="og:site_name" content="Hexo">
+<meta property="og:description" content="来自 APUE 上的第 3.3 题，原文如下：  编写一个与 3.12 节中 dup2 功能相同的函数，要求不调用 fcntl 函数，并且要有正确的出错处理。  函数原型是 int dup2(int fd, int fd2) ，作用是复制文件描述符 fd  ，使 fd2 为新的描述符的值，即 fd 与 fd2 共享同一个文件表项。若 fd2 已经打开，则先将其关闭。 很有意思的一个题。由于要求不调">
+<meta property="og:locale">
+<meta property="article:published_time" content="2022-02-24T13:58:00.000Z">
+<meta property="article:modified_time" content="2023-08-08T15:38:20.094Z">
+<meta property="article:author" content="Kujou Rinka">
+<meta name="twitter:card" content="summary">
+  
+    <link rel="alternate" href="/atom.xml" title="Hexo" type="application/atom+xml">
+  
+  
+    <link rel="shortcut icon" href="/favicon.png">
+  
+  
+    
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/typeface-source-code-pro@0.0.71/index.min.css">
+
+  
+  
+<link rel="stylesheet" href="/css/style.css">
+
+  
+    
+<link rel="stylesheet" href="/fancybox/jquery.fancybox.min.css">
+
+  
+<meta name="generator" content="Hexo 6.0.0"></head>
+
+<body>
+  <div id="container">
+    <div id="wrap">
+      <header id="header">
+  <div id="banner"></div>
+  <div id="header-outer" class="outer">
+    <div id="header-title" class="inner">
+      <h1 id="logo-wrap">
+        <a href="/" id="logo">Hexo</a>
+      </h1>
+      
+        <h2 id="subtitle-wrap">
+          <a href="/" id="subtitle">Rinka 的随笔</a>
+        </h2>
+      
+    </div>
+    <div id="header-inner" class="inner">
+      <nav id="main-nav">
+        <a id="main-nav-toggle" class="nav-icon"></a>
+        
+          <a class="main-nav-link" href="/">Home</a>
+        
+          <a class="main-nav-link" href="/archives">Archives</a>
+        
+      </nav>
+      <nav id="sub-nav">
+        
+          <a id="nav-rss-link" class="nav-icon" href="/atom.xml" title="RSS Feed"></a>
+        
+        <a id="nav-search-btn" class="nav-icon" title="Suche"></a>
+      </nav>
+      <div id="search-form-wrap">
+        <form action="//google.com/search" method="get" accept-charset="UTF-8" class="search-form"><input type="search" name="q" class="search-form-input" placeholder="Suche"><button type="submit" class="search-form-submit">&#xF002;</button><input type="hidden" name="sitesearch" value="https://kujourinka.github.io"></form>
+      </div>
+    </div>
+  </div>
+</header>
+
+      <div class="outer">
+        <section id="main"><article id="post-implement_dup2" class="h-entry article article-type-post" itemprop="blogPost" itemscope itemtype="https://schema.org/BlogPosting">
+  <div class="article-meta">
+    <a href="/2022/02/24/implement_dup2/" class="article-date">
+  <time class="dt-published" datetime="2022-02-24T13:58:00.000Z" itemprop="datePublished">2022-02-24</time>
+</a>
+    
+  </div>
+  <div class="article-inner">
+    
+    
+      <header class="article-header">
+        
+  
+    <h1 class="p-name article-title" itemprop="headline name">
+      实现 dup2() 函数
+    </h1>
+  
+
+      </header>
+    
+    <div class="e-content article-entry" itemprop="articleBody">
+      
+        <p>来自 APUE 上的第 3.3 题，原文如下：</p>
+<blockquote>
+<p>编写一个与 3.12 节中 <a target="_blank" rel="noopener" href="https://man7.org/linux/man-pages/man2/dup.2.html">dup2</a> 功能相同的函数，要求不调用 fcntl 函数，并且要有正确的出错处理。</p>
+</blockquote>
+<p>函数原型是 <code>int dup2(int fd, int fd2)</code> ，作用是复制文件描述符 <code>fd</code>  ，使 <code>fd2</code> 为新的描述符的值，即 <code>fd</code> 与 <code>fd2</code> 共享同一个文件表项。若 <code>fd2</code> 已经打开，则先将其关闭。</p>
+<p>很有意思的一个题。由于要求不调用 <code>fcntl</code> ，则基本思路为使用 <code>dup</code> 函数实现之。</p>
+<h4 id="实现基本逻辑-myDup2"><a href="#实现基本逻辑-myDup2" class="headerlink" title="实现基本逻辑 myDup2"></a>实现基本逻辑 <code>myDup2</code></h4><p>我们令自己实现的函数原型为 <code>int myDup2(int fd, int fd2)</code> ，先考虑该函数的基本逻辑。</p>
+<p>我们让所有的 <code>errno</code> 处理在该函数进行处理。</p>
+<p>首先，我们需要要求传入函数的两个文件描述符必须有效，于是有：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">int</span> <span class="title function_">myDup2</span><span class="params">(<span class="type">int</span> fd, <span class="type">int</span> fd2)</span> &#123;</span><br><span class="line">    <span class="type">int</span> max_fd = getdtablesize();    <span class="comment">// 获取文件描述符表的大小</span></span><br><span class="line">    <span class="keyword">if</span> (fd &lt; <span class="number">0</span> || fd &gt;= max_fd || fd2 &lt; <span class="number">0</span> || fd2 &gt;= max_fd || !isOpen(fd)) &#123;</span><br><span class="line">        errno = EBADF;</span><br><span class="line">        <span class="keyword">return</span> <span class="number">-1</span>;</span><br><span class="line">    &#125;</span><br><span class="line"><span class="comment">// ...</span></span><br></pre></td></tr></table></figure>
+
+<p>其中 <code>getdtablesize()</code> 用于获取文件描述符表的的大小，限制了系统最大的文件描述符。</p>
+<p><code>isOpen</code> 函数用于判断给定文件描述符是否为已打开的文件描述符，后续实现。</p>
+<p>若给定的文件描述符 <code>fd</code> 和 <code>fd2</code> 无效，则设置 <code>errno</code> 并返回 <code>-1</code> 。</p>
+<p>接下来，由 <code>dup2</code> 的定义，若 <code>fd</code> 等于 <code>fd2</code> ，则 <code>dup2</code> 返回 <code>fd2</code> ，而不关闭它；以及如果 <code>fd2</code> 已经打开，则先将其关闭：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// ...</span></span><br><span class="line">    <span class="keyword">if</span> (fd == fd2)</span><br><span class="line">        <span class="keyword">return</span> fd;</span><br><span class="line">    <span class="keyword">if</span> (isOpen(fd2))</span><br><span class="line">        close(fd2);</span><br><span class="line"><span class="comment">// ...</span></span><br></pre></td></tr></table></figure>
+
+<p>接下来为 <code>myDup2</code> 的核心逻辑。根据「 <code>dup</code> 返回的新文件描述符一定是当前可用文件描述符的最小数值」，基本思路为不断使用 <code>dup(fd)</code> 直至其返回值与 <code>fd2</code> 相等，随后将之前使用 <code>dup</code> 打开的文件描述符关闭即可。</p>
+<p>考虑到需要记录由 <code>dup(fd)</code> 创建的文件描述符用于删除，加之 <code>C</code> 需要手动实现类似动态数组之类的数据结构，我们<del>偷懒</del>使用递归替代手动存储的工作。我们将这个操作使用 <code>int recursiveDup(int fd, int fd2)</code> 完成，我们定义返回值为成功复制后的 <code>fd2</code> ，若失败，则返回 <code>-1</code> ：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// ...</span></span><br><span class="line">    <span class="keyword">if</span> ((fd2 = recursiveDup(fd, fd2)) == <span class="number">-1</span>)</span><br><span class="line">        errno = EBADF;</span><br><span class="line">    <span class="keyword">return</span> fd2;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>调用 <code>recursiveDup</code> 后期望得到 <code>fd2</code> 的值，若失败，则设置 <code>errno</code> 。</p>
+<h4 id="实现核心递归函数-recursiveDup"><a href="#实现核心递归函数-recursiveDup" class="headerlink" title="实现核心递归函数 recursiveDup"></a>实现核心递归函数 <code>recursiveDup</code></h4><p>首先：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">int</span> <span class="title function_">recursiveDup</span><span class="params">(<span class="type">int</span> fd, <span class="type">int</span> fd2)</span> &#123;</span><br><span class="line">    <span class="type">int</span> nf = dup(fd);</span><br><span class="line">    <span class="keyword">if</span> (nf == <span class="number">-1</span>)</span><br><span class="line">        <span class="keyword">return</span> <span class="number">-1</span>;</span><br><span class="line">    <span class="keyword">if</span> (nf == fd2)</span><br><span class="line">        <span class="keyword">return</span> nf;</span><br><span class="line">    <span class="type">int</span> rf = recursiveDup(fd, fd2);</span><br><span class="line"><span class="comment">// ...</span></span><br></pre></td></tr></table></figure>
+
+<p>使用 <code>dup</code> 复制文件描述符，若失败，返回 <code>-1</code> ，这里并不处理 <code>errno</code> 因为我们将所有的 <code>errno</code> 处理放在 <code>myDup</code> 中。若得到期望的文件描述符的值，返回之。若否，继续递归调用 <code>recursiveDup</code> 直至其产生。</p>
+<p>之后：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// ...</span></span><br><span class="line">    close(nf);</span><br><span class="line">    <span class="keyword">return</span> rf;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>关闭不合要求的 <code>nf</code> 返回结果（不论是否为 <code>-1</code>）。</p>
+<h4 id="收尾，实现-isOpen"><a href="#收尾，实现-isOpen" class="headerlink" title="收尾，实现 isOpen"></a>收尾，实现 <code>isOpen</code></h4><p>实现如下：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">int</span> <span class="title function_">isOpen</span><span class="params">(<span class="type">int</span> fd)</span> &#123;</span><br><span class="line">    <span class="type">int</span> old_errno = errno;</span><br><span class="line">    <span class="type">int</span> test_f = dup(fd);</span><br><span class="line">    errno = old_errno;</span><br><span class="line">    <span class="keyword">if</span> (test_f == <span class="number">-1</span>) &#123;</span><br><span class="line">        <span class="keyword">return</span> <span class="number">0</span>;</span><br><span class="line">    &#125;</span><br><span class="line">    close(test_f);</span><br><span class="line">    <span class="keyword">return</span> <span class="number">1</span>;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>我们利用 <code>dup</code> 函数只能作用于已打开文件描述符的机制进行判断。注意，我们需要对本来的 <code>errno</code> 进行处理，由于我们的 <code>isOpen</code> 仅进行判断，不应对系统本来的 <code>errno</code> 有影响，<code>dup</code> 后需要及时恢复。</p>
+<h4 id="完整代码"><a href="#完整代码" class="headerlink" title="完整代码"></a>完整代码</h4><figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">int</span> <span class="title function_">isOpen</span><span class="params">(<span class="type">int</span> fd)</span> &#123;</span><br><span class="line">    <span class="type">int</span> old_errno = errno;</span><br><span class="line">    <span class="type">int</span> test_f = dup(fd);</span><br><span class="line">    errno = old_errno;</span><br><span class="line">    <span class="keyword">if</span> (test_f == <span class="number">-1</span>) &#123;</span><br><span class="line">        <span class="keyword">return</span> <span class="number">0</span>;</span><br><span class="line">    &#125;</span><br><span class="line">    close(test_f);</span><br><span class="line">    <span class="keyword">return</span> <span class="number">1</span>;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="type">int</span> <span class="title function_">recursiveDup</span><span class="params">(<span class="type">int</span> fd, <span class="type">int</span> fd2)</span> &#123;</span><br><span class="line">    <span class="type">int</span> nf = dup(fd);</span><br><span class="line">    <span class="keyword">if</span> (nf == <span class="number">-1</span>)</span><br><span class="line">        <span class="keyword">return</span> <span class="number">-1</span>;</span><br><span class="line">    <span class="keyword">if</span> (nf == fd2)</span><br><span class="line">        <span class="keyword">return</span> nf;</span><br><span class="line">    <span class="type">int</span> rf = recursiveDup(fd, fd2);</span><br><span class="line">    close(nf);</span><br><span class="line">    <span class="keyword">return</span> rf;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="type">int</span> <span class="title function_">myDup2</span><span class="params">(<span class="type">int</span> fd, <span class="type">int</span> fd2)</span> &#123;</span><br><span class="line">    <span class="type">int</span> max_fd = getdtablesize();</span><br><span class="line">    <span class="keyword">if</span> (fd &lt; <span class="number">0</span> || fd &gt;= max_fd || fd2 &lt; <span class="number">0</span> || fd2 &gt;= max_fd || !isOpen(fd)) &#123;</span><br><span class="line">        errno = EBADF;</span><br><span class="line">        <span class="keyword">return</span> <span class="number">-1</span>;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">if</span> (fd == fd2)</span><br><span class="line">        <span class="keyword">return</span> fd;</span><br><span class="line">    <span class="keyword">if</span> (isOpen(fd2))</span><br><span class="line">        close(fd2);</span><br><span class="line">    <span class="keyword">if</span> ((fd2 = recursiveDup(fd, fd2)) == <span class="number">-1</span>)</span><br><span class="line">        errno = EBADF;</span><br><span class="line">    <span class="keyword">return</span> fd2;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>个人感觉很有意思的一个题，不断反复利用 <code>dup</code> 函数的性质得到结果。</p>
+
+      
+    </div>
+    <footer class="article-footer">
+      <a data-url="https://kujourinka.github.io/2022/02/24/implement_dup2/" data-id="cll2gun8r0004d8p01j2bdvmf" data-title="实现 dup2() 函数" class="article-share-link">Teilen</a>
+      
+      
+      
+    </footer>
+  </div>
+  
+    
+<nav id="article-nav">
+  
+    <a href="/2022/03/07/brief_taking_on_creational/" id="article-nav-newer" class="article-nav-link-wrap">
+      <strong class="article-nav-caption">Neuer</strong>
+      <div class="article-nav-title">
+        
+          浅谈创建型设计模式
+        
+      </div>
+    </a>
+  
+  
+</nav>
+
+  
+</article>
+
+
+</section>
+        
+          <aside id="sidebar">
+  
+    
+
+  
+    
+
+  
+    
+  
+    
+  <div class="widget-wrap">
+    <h3 class="widget-title">Archiv</h3>
+    <div class="widget">
+      <ul class="archive-list"><li class="archive-list-item"><a class="archive-list-link" href="/archives/2023/08/">August 2023</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2023/04/">April 2023</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2023/03/">March 2023</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2023/02/">February 2023</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2022/12/">December 2022</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2022/06/">June 2022</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2022/03/">March 2022</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2022/02/">February 2022</a></li></ul>
+    </div>
+  </div>
+
+
+  
+    
+  <div class="widget-wrap">
+    <h3 class="widget-title">letzter Beitrag</h3>
+    <div class="widget">
+      <ul>
+        
+          <li>
+            <a href="/2023/08/08/re0_ss1/">从零写一个 shadowsocks（1）</a>
+          </li>
+        
+          <li>
+            <a href="/2023/04/20/simple_impl_for_lazy/">简记一次 rCore 中 sys_sbrk() 与 lazy allocation 的实现</a>
+          </li>
+        
+          <li>
+            <a href="/2023/03/21/nic_driver_kara_syscall_he/">从网卡驱动到系统调用</a>
+          </li>
+        
+          <li>
+            <a href="/2023/02/08/6824_lab2a_leader_election/">6.824 Lab2A Leader Election 可行方案</a>
+          </li>
+        
+          <li>
+            <a href="/2022/12/23/6824_lab1_MapReduce/">6.824 Lab1 MapReduce 快速实现</a>
+          </li>
+        
+      </ul>
+    </div>
+  </div>
+
+  
+</aside>
+        
+      </div>
+      <footer id="footer">
+  
+  <div class="outer">
+    <div id="footer-info" class="inner">
+      
+      &copy; 2023 Kujou Rinka<br>
+      Powered by <a href="https://hexo.io/" target="_blank">Hexo</a>
+    </div>
+  </div>
+</footer>
+
+    </div>
+    <nav id="mobile-nav">
+  
+    <a href="/" class="mobile-nav-link">Home</a>
+  
+    <a href="/archives" class="mobile-nav-link">Archives</a>
+  
+</nav>
+    
+
+
+<script src="/js/jquery-3.4.1.min.js"></script>
+
+
+
+  
+<script src="/fancybox/jquery.fancybox.min.js"></script>
+
+
+
+
+<script src="/js/script.js"></script>
+
+
+
+
+
+  </div>
+</body>
+</html>
